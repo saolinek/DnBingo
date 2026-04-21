@@ -47,14 +47,14 @@ try {
 
 export default function App() {
   const [sessionId, setSessionId] = useState(() => {
-    return localStorage.getItem('dnb-session') || generateSessionId();
+    return localStorage.getItem('dnb-session') || '';
   });
   const [isJoining, setIsJoining] = useState(false);
   const [joinCode, setJoinCode] = useState('');
   
   const [isDarkMode, setIsDarkMode] = useState(() => {
     const saved = localStorage.getItem('dnb-theme');
-    return saved === 'dark' || !saved; 
+    return saved === 'dark'; 
   });
 
   const [squares, setSquares] = useState<BingoSquare[]>(() => {
@@ -97,6 +97,7 @@ export default function App() {
   });
   
   const [hasWon, setHasWon] = useState(false);
+  const [wonAt, setWonAt] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<string[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -116,10 +117,14 @@ export default function App() {
       snapshot.forEach(d => {
         p.push({ id: d.id, ...d.data() });
       });
-      // Sort by win state and checked count
+      // Sort by win state: winners first. Then by wonAt timestamp (ascending so first to win is first).
       p.sort((a, b) => {
-        if (a.hasWon !== b.hasWon) return a.hasWon ? -1 : 1;
-        return b.checkedCount - a.checkedCount;
+        if (a.hasWon && !b.hasWon) return -1;
+        if (!a.hasWon && b.hasWon) return 1;
+        if (a.hasWon && b.hasWon) {
+           return (a.wonAt || 0) - (b.wonAt || 0);
+        }
+        return 0;
       });
       setPlayers(p);
     });
@@ -129,15 +134,14 @@ export default function App() {
 
   useEffect(() => {
     if (!user) return;
-    const checkedCount = squares.filter(s => s.checked).length;
     const playerRef = doc(db, `rooms/${sessionId}/players`, user.uid);
     setDoc(playerRef, {
       name: user.displayName || 'Hráč',
-      checkedCount,
       hasWon,
+      wonAt: wonAt || null,
       updatedAt: serverTimestamp()
-    }).catch(console.error);
-  }, [squares, hasWon, sessionId, user]);
+    }, { merge: true }).catch(console.error);
+  }, [hasWon, wonAt, sessionId, user]);
 
   // Sync theme
   useEffect(() => {
@@ -194,6 +198,7 @@ export default function App() {
 
     if (!hasWon && checkWinner(newSquares)) {
       setHasWon(true);
+      setWonAt(Date.now());
       confetti({
         particleCount: 150,
         spread: 70,
@@ -246,8 +251,60 @@ export default function App() {
   const isFull = squares.every(s => s.title.trim() !== '');
 
   return (
-    <div className="min-h-screen bg-[var(--bg-app)] text-[var(--text-main)] select-none font-sans p-6 md:p-12 flex flex-col items-center">
-      <header className="w-full max-w-6xl flex flex-col md:flex-row justify-between items-center md:items-end mb-12 border-b border-[var(--border-dim)] pb-8 gap-6 md:gap-0">
+    <div className="min-h-screen bg-[var(--bg-app)] text-[var(--text-main)] select-none font-sans flex flex-col">
+      {!sessionId ? (
+        <div className="flex-1 flex flex-col items-center justify-center p-6 relative">
+          <div className="absolute top-6 right-6">
+            <button 
+              onClick={() => setIsDarkMode(!isDarkMode)}
+              className="p-3 bg-[var(--surface)] border border-[var(--border-bright)] rounded-xl text-[var(--text-main)] hover:bg-[var(--surface-alt)] transition-all shadow-sm"
+              title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+            >
+              {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
+            </button>
+          </div>
+          
+          <div className="max-w-md w-full bg-[var(--surface)] p-10 md:p-12 rounded-3xl border border-[var(--border-bright)] shadow-xl flex flex-col gap-10 text-center relative overflow-hidden">
+            <div className="absolute -top-20 -right-20 w-64 h-64 bg-[var(--brand)] rounded-full blur-[120px] opacity-20 pointer-events-none"></div>
+            
+            <div className="flex flex-col gap-2 relative z-10">
+              <span className="text-[10px] uppercase tracking-[0.4em] text-[var(--brand)] font-bold mb-2">Live Arena</span>
+              <h1 className="text-5xl md:text-6xl font-[800] tracking-tighter uppercase italic text-[var(--text-main)] drop-shadow-sm">
+                DN<span className="text-[var(--brand)]">BINGO</span>
+              </h1>
+            </div>
+
+            <div className="flex flex-col gap-4 relative z-10 mt-4">
+              <button 
+                onClick={() => {
+                  setSessionId(generateSessionId());
+                  setSquares(Array.from({ length: 9 }, (_, i) => ({ id: i, title: '', checked: false })));
+                  setMode('setup');
+                  setHasWon(false);
+                  setWonAt(null);
+                }}
+                className="w-full py-5 bg-[var(--brand)] text-[var(--bg-app)] rounded-2xl font-[800] uppercase tracking-widest text-sm shadow-[0_0_20px_var(--shadow-color)] hover:scale-[1.02] active:scale-95 transition-all"
+              >
+                Založit novou hru
+              </button>
+              
+              <div className="relative flex items-center justify-center py-2">
+                 <div className="h-[1px] w-full bg-[var(--border-bright)]"></div>
+                 <span className="absolute bg-[var(--surface)] px-4 text-[10px] uppercase font-bold text-[var(--text-muted)] tracking-widest">nebo</span>
+              </div>
+
+              <button 
+                onClick={() => setIsJoining(true)}
+                className="w-full py-5 bg-[var(--surface-alt)] hover:bg-[var(--border-dim)] border border-[var(--border-bright)] text-[var(--text-main)] rounded-2xl font-[800] uppercase tracking-widest text-sm hover:scale-[1.02] active:scale-95 transition-all"
+              >
+                Připojit ke hře
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="flex-1 p-6 md:p-12 flex flex-col items-center">
+          <header className="w-full max-w-6xl flex flex-col md:flex-row justify-between items-center md:items-end mb-12 border-b border-[var(--border-dim)] pb-8 gap-6 md:gap-0">
         <div className="flex flex-col items-center md:items-start group cursor-pointer" onClick={() => window.location.reload()}>
           <span className="text-[10px] uppercase tracking-[0.3em] text-[var(--brand)] font-semibold mb-1">Live Arena</span>
           <h1 className="text-5xl font-[800] tracking-tighter text-[var(--text-main)] uppercase italic group-hover:scale-105 transition-transform duration-300">
@@ -414,21 +471,30 @@ export default function App() {
                   </button>
                 </div>
               ) : (
-                players.map(p => (
-                  <div key={p.id} className={`flex items-center justify-between ${p.id !== user.uid && 'opacity-60'} transition-opacity`}>
-                    <span className="flex items-center gap-3">
-                      <span className={`w-8 h-8 rounded-lg ${p.hasWon ? 'bg-[#ec4899] text-white shadow-[0_0_10px_#ec4899]' : p.id === user.uid ? 'bg-[var(--brand)] text-[var(--bg-app)]' : 'bg-[var(--surface-alt)] border border-[var(--border-bright)] text-[var(--text-main)]'} font-[800] flex items-center justify-center text-[10px] tracking-tighter`}>
-                        {p.name.substring(0, 2).toUpperCase()}
+                players.map((p, index) => {
+                  const winnersList = players.filter(pl => pl.hasWon);
+                  const rankIndex = winnersList.findIndex(w => w.id === p.id);
+                  const isWinner = p.hasWon;
+                  const rankString = isWinner ? `${rankIndex + 1}. BINGO` : '';
+
+                  return (
+                    <div key={p.id} className={`flex items-center justify-between ${p.id !== user.uid && 'opacity-60'} transition-opacity`}>
+                      <span className="flex items-center gap-3">
+                        <span className={`w-8 h-8 rounded-lg ${isWinner ? 'bg-[#ec4899] text-white shadow-[0_0_10px_#ec4899]' : p.id === user.uid ? 'bg-[var(--brand)] text-[var(--bg-app)]' : 'bg-[var(--surface-alt)] border border-[var(--border-bright)] text-[var(--text-main)]'} font-[800] flex items-center justify-center text-[10px] tracking-tighter`}>
+                          {p.name.substring(0, 2).toUpperCase()}
+                        </span>
+                        <span className="font-bold tracking-tight text-sm flex gap-2 items-center">
+                          {p.name} {p.id === user.uid && <span className="text-[10px] text-[var(--brand)]">(Ty)</span>}
+                        </span>
                       </span>
-                      <span className="font-bold tracking-tight text-sm flex gap-2 items-center">
-                        {p.name} {p.id === user.uid && <span className="text-[10px] text-[var(--brand)]">(Ty)</span>}
-                      </span>
-                    </span>
-                    <span className={`text-[10px] font-mono tracking-tighter uppercase font-bold ${p.hasWon ? 'text-[#ec4899]' : p.id === user.uid ? 'text-[var(--brand)]' : 'text-[var(--text-muted)]'}`}>
-                      {p.hasWon ? 'BINGO!' : `${p.checkedCount} / 3 Match`}
-                    </span>
-                  </div>
-                ))
+                      {isWinner && (
+                        <span className={`text-[10px] font-mono tracking-tighter uppercase font-bold text-[#ec4899]`}>
+                          {rankString}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })
               )}
             </div>
 
@@ -475,6 +541,8 @@ export default function App() {
           DN<span className="text-[var(--text-main)]">BINGO</span> SYSTEM v2.0.44-AUTO // SEARCH POWERED BY GOOGLE
         </p>
       </footer>
+      </div>
+      )}
 
       {/* Winning Modal */}
       {hasWon && (
@@ -487,7 +555,7 @@ export default function App() {
             <h2 className="text-4xl font-[800] text-[var(--brand)] italic">BINGO!</h2>
             <p className="text-[var(--text-muted)] text-sm">Právě jsi vyhrál. Co dál?</p>
             <div className="flex flex-col gap-3">
-              <button onClick={() => { setSquares(prev => prev.map(s => ({...s, checked: false}))); setHasWon(false); }} className="w-full py-4 bg-[var(--brand)] text-[var(--bg-app)] rounded-xl font-[800] uppercase tracking-widest text-xs">
+              <button onClick={() => { setSquares(prev => prev.map(s => ({...s, checked: false}))); setHasWon(false); setWonAt(null); }} className="w-full py-4 bg-[var(--brand)] text-[var(--bg-app)] rounded-xl font-[800] uppercase tracking-widest text-xs">
                 Hrát znovu (Stejné songy)
               </button>
               <button onClick={() => { 
@@ -495,6 +563,7 @@ export default function App() {
                 setSquares(Array.from({ length: 9 }, (_, i) => ({ id: i, title: '', checked: false }))); 
                 setMode('setup'); 
                 setHasWon(false); 
+                setWonAt(null);
               }} className="w-full py-4 bg-[var(--surface-alt)] text-[var(--text-main)] border border-[var(--border-bright)] rounded-xl font-[800] uppercase tracking-widest text-xs hover:border-[var(--brand)] transition-colors">
                 Založit novou hru
               </button>
@@ -528,6 +597,7 @@ export default function App() {
                 setSquares(Array.from({ length: 9 }, (_, i) => ({ id: i, title: '', checked: false })));
                 setMode('setup');
                 setHasWon(false);
+                setWonAt(null);
               }}
               className="w-full py-4 bg-[var(--brand)] text-[var(--bg-app)] rounded-xl font-[800] uppercase tracking-widest text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
             >
