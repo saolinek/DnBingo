@@ -34,8 +34,16 @@ const generateSessionId = () => {
   return Array.from({length: 3}, () => chars.charAt(Math.floor(Math.random() * chars.length))).join('');
 };
 
-// Initialize Gemini
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// Initialize Gemini safely
+let ai: GoogleGenAI | null = null;
+try {
+  const apiKey = process.env.GEMINI_API_KEY || '';
+  if (apiKey) {
+    ai = new GoogleGenAI({ apiKey });
+  }
+} catch (e) {
+  console.warn("Gemini API key is not configured. Search will be unavailable.");
+}
 
 export default function App() {
   const [sessionId, setSessionId] = useState(() => {
@@ -201,6 +209,10 @@ export default function App() {
 
   const searchTracks = async (q: string) => {
     try {
+      if (!ai) {
+        console.warn("AI functions are unavailable");
+        return;
+      }
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
         contents: `Provide 5 popular Drum and Bass tracks matching: ${q}. Give ONLY a JSON array of strings in format ["Artist - Title", ...]`,
