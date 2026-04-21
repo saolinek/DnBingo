@@ -12,14 +12,14 @@ import {
   Moon,
   Search,
   Loader2,
-  X,
-  LogOut
+  X
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { GoogleGenAI, Type } from "@google/genai";
 import { auth, db } from './firebase';
-import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User, signOut } from 'firebase/auth';
+import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, serverTimestamp, collection, query } from 'firebase/firestore';
+import { QRCodeSVG } from 'qrcode.react';
 
 interface BingoSquare {
   id: number;
@@ -47,6 +47,14 @@ try {
 
 export default function App() {
   const [sessionId, setSessionId] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    const roomParam = params.get('room');
+    if (roomParam && roomParam.length === 3) {
+      localStorage.setItem('dnb-session', roomParam);
+      // Clean up URL without reloading
+      window.history.replaceState({}, '', window.location.pathname);
+      return roomParam;
+    }
     return localStorage.getItem('dnb-session') || '';
   });
   const [isJoining, setIsJoining] = useState(false);
@@ -523,24 +531,27 @@ export default function App() {
                   Nová hra
                 </button>
               </div>
-              {user && (
-                <button
-                  onClick={() => signOut(auth)}
-                  className="mt-2 py-3 px-4 flex items-center justify-center gap-2 bg-[var(--surface)] hover:bg-[var(--surface-alt)] border border-[var(--border-bright)] text-[var(--text-muted)] rounded-xl text-[10px] font-[800] uppercase tracking-widest transition-all"
-                >
-                  <LogOut size={12} /> Odhlásit se
-                </button>
-              )}
+            </div>
+            
+            <div className="h-[1px] bg-[var(--border-bright)] w-full my-2"></div>
+            
+            <div className="flex flex-col items-center gap-4 text-center mt-2">
+              <h3 className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] font-bold">QR pro připojení</h3>
+              <div className="bg-white p-3 rounded-2xl shadow-sm">
+                <QRCodeSVG 
+                  value={`${window.location.origin}${window.location.pathname}?room=${sessionId}`} 
+                  size={140}
+                  level="H"
+                  includeMargin={false}
+                  bgColor="#ffffff"
+                  fgColor="#000000"
+                />
+              </div>
+              <p className="text-[10px] text-[var(--text-muted)] max-w-[200px]">Naskenuj připojením z mobilu a rovnou hraj v této místnosti.</p>
             </div>
           </div>
         </aside>
       </main>
-
-      <footer className="mt-16 text-center max-w-lg opacity-30 pb-12">
-        <p className="text-[10px] uppercase leading-relaxed tracking-[0.3em] font-[800] text-[var(--text-muted)]">
-          DN<span className="text-[var(--text-main)]">BINGO</span> SYSTEM v2.0.44-AUTO // SEARCH POWERED BY GOOGLE
-        </p>
-      </footer>
       </div>
       )}
 
