@@ -1,0 +1,46 @@
+{
+  "entities": {
+    "Room": {
+      "title": "Room",
+      "description": "A multiplayer game room",
+      "type": "object",
+      "properties": {
+        "createdAt": {
+          "type": "timestamp"
+        }
+      }
+    },
+    "Player": {
+      "title": "Player",
+      "description": "A player within a room",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "User's display name"
+        },
+        "checkedCount": {
+          "type": "integer",
+          "description": "Number of matched songs (0-9)"
+        },
+        "hasWon": {
+          "type": "boolean"
+        },
+        "updatedAt": {
+          "type": "timestamp"
+        }
+      },
+      "required": ["name", "checkedCount", "hasWon", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/rooms/{roomId}": {
+      "schema": { "$ref": "#/entities/Room" },
+      "description": "Game rooms"
+    },
+    "/rooms/{roomId}/players/{playerId}": {
+      "schema": { "$ref": "#/entities/Player" },
+      "description": "Players in the game room"
+    }
+  }
+}

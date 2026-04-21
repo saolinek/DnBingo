@@ -12,10 +12,14 @@ import {
   Moon,
   Search,
   Loader2,
-  X
+  X,
+  LogOut
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { GoogleGenAI, Type } from "@google/genai";
+import { auth, db } from './firebase';
+import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User, signOut } from 'firebase/auth';
+import { doc, setDoc, onSnapshot, serverTimestamp, collection, query } from 'firebase/firestore';
 
 interface BingoSquare {
   id: number;
@@ -57,6 +61,24 @@ export default function App() {
     return Array.from({ length: 9 }, (_, i) => ({ id: i, title: '', checked: false }));
   });
 
+  const [user, setUser] = useState<User | null>(null);
+  const [players, setPlayers] = useState<any[]>([]);
+
+  useEffect(() => {
+    return onAuthStateChanged(auth, u => {
+      setUser(u);
+    });
+  }, []);
+
+  const handleLogin = async () => {
+    const provider = new GoogleAuthProvider();
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const [mode, setMode] = useState<'setup' | 'play'>(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
@@ -71,6 +93,43 @@ export default function App() {
   const [searchResults, setSearchResults] = useState<string[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [activeSearchIndex, setActiveSearchIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    
+    // Create/touch room so rules pass
+    const roomRef = doc(db, 'rooms', sessionId);
+    setDoc(roomRef, { createdAt: serverTimestamp() }, { merge: true }).catch(console.error);
+
+    // Sync players
+    const q = query(collection(db, `rooms/${sessionId}/players`));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const p: any[] = [];
+      snapshot.forEach(d => {
+        p.push({ id: d.id, ...d.data() });
+      });
+      // Sort by win state and checked count
+      p.sort((a, b) => {
+        if (a.hasWon !== b.hasWon) return a.hasWon ? -1 : 1;
+        return b.checkedCount - a.checkedCount;
+      });
+      setPlayers(p);
+    });
+
+    return () => unsubscribe();
+  }, [sessionId, user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const checkedCount = squares.filter(s => s.checked).length;
+    const playerRef = doc(db, `rooms/${sessionId}/players`, user.uid);
+    setDoc(playerRef, {
+      name: user.displayName || 'Hráč',
+      checkedCount,
+      hasWon,
+      updatedAt: serverTimestamp()
+    }).catch(console.error);
+  }, [squares, hasWon, sessionId, user]);
 
   // Sync theme
   useEffect(() => {
@@ -335,27 +394,30 @@ export default function App() {
           <div className="bg-[var(--surface)] rounded-2xl border border-[var(--border-bright)] p-8 flex flex-col gap-6 shadow-sm">
             <h2 className="text-xs uppercase tracking-[0.2em] text-[var(--text-muted)] font-[800] border-b border-[var(--border-bright)] pb-4">Hráči v Roomce ({sessionId})</h2>
             <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-4">
-                  <span className="w-10 h-10 rounded-xl bg-[var(--brand)] text-[var(--bg-app)] font-[800] flex items-center justify-center text-xs tracking-tighter shadow-[0_0_15px_var(--shadow-color)]">
-                    YOU
-                  </span>
-                  <span className="font-bold tracking-tight">Vibe_Check</span>
-                </span>
-                <span className="text-xs text-[var(--brand)] font-mono tracking-tighter uppercase font-bold">
-                  {squares.filter(s => s.checked).length} / 3 Match
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between opacity-30 select-none">
-                <span className="flex items-center gap-4">
-                  <span className="w-10 h-10 rounded-xl bg-[var(--border-bright)] text-[var(--text-main)] font-[800] flex items-center justify-center text-xs tracking-tighter">
-                    JP
-                  </span>
-                  <span className="font-bold tracking-tight">Jirka_P</span>
-                </span>
-                <span className="text-xs text-[var(--text-muted)] font-mono tracking-tighter uppercase">1 / 3 Match</span>
-              </div>
+              {!user ? (
+                <div className="flex flex-col items-center justify-center p-6 text-center border border-dashed border-[var(--border-bright)] rounded-xl gap-4">
+                  <p className="text-xs text-[var(--text-muted)]">Pro zobrazení hráčů se musíš přihlásit</p>
+                  <button onClick={handleLogin} className="py-2 px-4 bg-[var(--brand)] text-[var(--bg-app)] rounded-lg text-xs font-bold uppercase tracking-widest shadow-sm">
+                    Přihlásit Googlem
+                  </button>
+                </div>
+              ) : (
+                players.map(p => (
+                  <div key={p.id} className={`flex items-center justify-between ${p.id !== user.uid && 'opacity-60'} transition-opacity`}>
+                    <span className="flex items-center gap-3">
+                      <span className={`w-8 h-8 rounded-lg ${p.hasWon ? 'bg-[#ec4899] text-white shadow-[0_0_10px_#ec4899]' : p.id === user.uid ? 'bg-[var(--brand)] text-[var(--bg-app)]' : 'bg-[var(--surface-alt)] border border-[var(--border-bright)] text-[var(--text-main)]'} font-[800] flex items-center justify-center text-[10px] tracking-tighter`}>
+                        {p.name.substring(0, 2).toUpperCase()}
+                      </span>
+                      <span className="font-bold tracking-tight text-sm flex gap-2 items-center">
+                        {p.name} {p.id === user.uid && <span className="text-[10px] text-[var(--brand)]">(Ty)</span>}
+                      </span>
+                    </span>
+                    <span className={`text-[10px] font-mono tracking-tighter uppercase font-bold ${p.hasWon ? 'text-[#ec4899]' : p.id === user.uid ? 'text-[var(--brand)]' : 'text-[var(--text-muted)]'}`}>
+                      {p.hasWon ? 'BINGO!' : `${p.checkedCount} / 3 Match`}
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
 
             <div className="h-[1px] bg-[var(--border-bright)] w-full my-2"></div>
@@ -383,6 +445,14 @@ export default function App() {
                   Nová hra
                 </button>
               </div>
+              {user && (
+                <button
+                  onClick={() => signOut(auth)}
+                  className="mt-2 py-3 px-4 flex items-center justify-center gap-2 bg-[var(--surface)] hover:bg-[var(--surface-alt)] border border-[var(--border-bright)] text-[var(--text-muted)] rounded-xl text-[10px] font-[800] uppercase tracking-widest transition-all"
+                >
+                  <LogOut size={12} /> Odhlásit se
+                </button>
+              )}
             </div>
           </div>
         </aside>
