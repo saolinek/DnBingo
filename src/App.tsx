@@ -11,7 +11,6 @@ import {
   Sun,
   Moon,
   Search,
-  Sparkles,
   Loader2,
   X
 } from 'lucide-react';
@@ -26,10 +25,21 @@ interface BingoSquare {
 
 const STORAGE_KEY = 'dnb-bingo-state';
 
+const generateSessionId = () => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  return Array.from({length: 3}, () => chars.charAt(Math.floor(Math.random() * chars.length))).join('');
+};
+
 // Initialize Gemini
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 export default function App() {
+  const [sessionId, setSessionId] = useState(() => {
+    return localStorage.getItem('dnb-session') || generateSessionId();
+  });
+  const [isJoining, setIsJoining] = useState(false);
+  const [joinCode, setJoinCode] = useState('');
+  
   const [isDarkMode, setIsDarkMode] = useState(() => {
     const saved = localStorage.getItem('dnb-theme');
     return saved === 'dark' || !saved; 
@@ -60,7 +70,6 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<string[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [isGeneratingSet, setIsGeneratingSet] = useState(false);
   const [activeSearchIndex, setActiveSearchIndex] = useState<number | null>(null);
 
   // Sync theme
@@ -73,6 +82,25 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(squares));
   }, [squares]);
+
+  useEffect(() => {
+    localStorage.setItem('dnb-session', sessionId);
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (searchQuery.length <= 2 || activeSearchIndex === null) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+    
+    setIsSearching(true);
+    const timer = setTimeout(() => {
+      searchTracks(searchQuery);
+    }, 600); // 600ms debounce
+    
+    return () => clearTimeout(timer);
+  }, [searchQuery, activeSearchIndex]);
 
   const checkWinner = useCallback((currentSquares: BingoSquare[]) => {
     const winPatterns = [
@@ -112,29 +140,7 @@ export default function App() {
     setSquares(prev => prev.map(s => s.id === id ? { ...s, title } : s));
   };
 
-  const resetGame = () => {
-    if (confirm('Start new card? This will clear all songs.')) {
-      setSquares(Array.from({ length: 9 }, (_, i) => ({ id: i, title: '', checked: false })));
-      setMode('setup');
-      setHasWon(false);
-      setSearchQuery('');
-      setSearchResults([]);
-    }
-  };
-
-  const clearChecks = () => {
-    if (confirm('Clear all checkmarks but keep songs?')) {
-      setSquares(prev => prev.map(s => ({ ...s, checked: false })));
-      setHasWon(false);
-    }
-  };
-
   const searchTracks = async (q: string) => {
-    if (!q.trim()) {
-      setSearchResults([]);
-      return;
-    }
-    setIsSearching(true);
     try {
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
@@ -154,34 +160,6 @@ export default function App() {
       console.error("Search failed", e);
     } finally {
       setIsSearching(false);
-    }
-  };
-
-  const generateFullCard = async () => {
-    if (squares.some(s => s.title.trim()) && !confirm("This will overwrite your current songs. Continue?")) return;
-    
-    setIsGeneratingSet(true);
-    try {
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: "Provide 9 iconic Drum and Bass tracks that are frequently played at raves (classics and current hits). Give ONLY a JSON array of 9 strings in format [\"Artist - Title\", ...]",
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
-            items: { type: Type.STRING }
-          },
-          tools: [{ googleSearch: {} }]
-        }
-      });
-      const data = JSON.parse(response.text || "[]");
-      if (Array.isArray(data) && data.length >= 9) {
-        setSquares(data.slice(0, 9).map((title, id) => ({ id, title, checked: false })));
-      }
-    } catch (e) {
-      console.error("Generation failed", e);
-    } finally {
-      setIsGeneratingSet(false);
     }
   };
 
@@ -216,8 +194,8 @@ export default function App() {
           </button>
           
           <div className="text-center md:text-right">
-            <span className="block text-[10px] uppercase text-[var(--text-muted)] tracking-widest mb-1">Session ID</span>
-            <span className="font-mono text-xl text-[var(--text-main)] tracking-wider">RVE-2044</span>
+            <span className="block text-[10px] uppercase text-[var(--text-muted)] tracking-widest mb-1">Room Code</span>
+            <span className="font-mono text-xl text-[var(--text-main)] tracking-wider uppercase">{sessionId}</span>
           </div>
           <div className="h-12 w-[1px] bg-[var(--border-dim)] hidden md:block"></div>
           <div className="flex flex-col items-center md:items-start text-center md:text-left">
@@ -251,20 +229,6 @@ export default function App() {
               <Play size={16} /> PLAY
             </button>
           </div>
-
-          {/* AI Helper in Setup Mode */}
-          {mode === 'setup' && (
-            <div className="w-full mb-8 flex flex-col items-center gap-4">
-              <button 
-                onClick={generateFullCard}
-                disabled={isGeneratingSet}
-                className="w-full py-4 bg-[var(--surface)] border border-[var(--brand)]/30 rounded-2xl text-[var(--brand)] font-800 text-xs uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-[var(--brand)]/5 transition-all shadow-sm"
-              >
-                {isGeneratingSet ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-                {isGeneratingSet ? 'GENERATING ICONIC SET...' : 'AUTO-FILL ICONIC TRACKS'}
-              </button>
-            </div>
-          )}
 
           <div className="grid grid-cols-3 gap-4 w-full aspect-square max-w-[600px]">
             <AnimatePresence mode="popLayout">
@@ -320,12 +284,9 @@ export default function App() {
                                 </button>
                               ))
                             ) : (
-                              <button 
-                                onClick={() => searchTracks(searchQuery)}
-                                className="w-full p-6 text-center text-[10px] font-bold text-[var(--brand)] uppercase tracking-wider hover:bg-[var(--brand)]/5"
-                              >
-                                Try Search for "{searchQuery}"
-                              </button>
+                              <div className="p-6 text-center text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider">
+                                Žádné výsledky pro "{searchQuery}"
+                              </div>
                             )}
                           </div>
                         </div>
@@ -372,7 +333,7 @@ export default function App() {
 
         <aside className="lg:col-span-4 flex flex-col gap-6">
           <div className="bg-[var(--surface)] rounded-2xl border border-[var(--border-bright)] p-8 flex flex-col gap-6 shadow-sm">
-            <h2 className="text-xs uppercase tracking-[0.2em] text-[var(--text-muted)] font-[800] border-b border-[var(--border-bright)] pb-4">Players in Room (1)</h2>
+            <h2 className="text-xs uppercase tracking-[0.2em] text-[var(--text-muted)] font-[800] border-b border-[var(--border-bright)] pb-4">Hráči v Roomce ({sessionId})</h2>
             <div className="space-y-6">
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-4">
@@ -398,21 +359,28 @@ export default function App() {
             </div>
 
             <div className="h-[1px] bg-[var(--border-bright)] w-full my-2"></div>
-
+            
             <div className="flex flex-col gap-3">
-              <h3 className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] font-bold">Quick Actions</h3>
+              <h3 className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] font-bold">Nastavení hry</h3>
               <div className="grid grid-cols-2 gap-3">
                 <button 
-                  onClick={clearChecks}
+                  onClick={() => setIsJoining(true)}
                   className="py-3 px-4 bg-[var(--surface-alt)] hover:bg-[var(--border-dim)] text-[var(--text-main)] rounded-xl text-[10px] font-[800] uppercase tracking-widest transition-all"
                 >
-                  Reset Marks
+                  Připojit k cizí
                 </button>
                 <button 
-                  onClick={resetGame}
+                  onClick={() => {
+                    if (confirm('Spustit úplně novou hru a vymazat vše?')) {
+                      setSessionId(generateSessionId());
+                      setSquares(Array.from({ length: 9 }, (_, i) => ({ id: i, title: '', checked: false })));
+                      setMode('setup');
+                      setHasWon(false);
+                    }
+                  }}
                   className="py-3 px-4 bg-[var(--surface-alt)] hover:bg-[var(--border-dim)] text-red-500 rounded-xl text-[10px] font-[800] uppercase tracking-widest transition-all"
                 >
-                  New Card
+                  Nová hra
                 </button>
               </div>
             </div>
@@ -426,9 +394,65 @@ export default function App() {
         </p>
       </footer>
 
-      {/* Winning Modal Background Overlay */}
+      {/* Winning Modal */}
       {hasWon && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-md z-40 pointer-events-none" />
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-[var(--surface)] p-8 rounded-3xl border border-[var(--brand)] shadow-[0_0_50px_var(--shadow-color)] max-w-sm w-full text-center flex flex-col gap-6"
+          >
+            <h2 className="text-4xl font-[800] text-[var(--brand)] italic">BINGO!</h2>
+            <p className="text-[var(--text-muted)] text-sm">Právě jsi vyhrál. Co dál?</p>
+            <div className="flex flex-col gap-3">
+              <button onClick={() => { setSquares(prev => prev.map(s => ({...s, checked: false}))); setHasWon(false); }} className="w-full py-4 bg-[var(--brand)] text-[var(--bg-app)] rounded-xl font-[800] uppercase tracking-widest text-xs">
+                Hrát znovu (Stejné songy)
+              </button>
+              <button onClick={() => { 
+                setSessionId(generateSessionId());
+                setSquares(Array.from({ length: 9 }, (_, i) => ({ id: i, title: '', checked: false }))); 
+                setMode('setup'); 
+                setHasWon(false); 
+              }} className="w-full py-4 bg-[var(--surface-alt)] text-[var(--text-main)] border border-[var(--border-bright)] rounded-xl font-[800] uppercase tracking-widest text-xs hover:border-[var(--brand)] transition-colors">
+                Založit novou hru
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Join Room Modal */}
+      {isJoining && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[var(--surface)] p-8 rounded-3xl border border-[var(--border-bright)] max-w-sm w-full shadow-2xl relative">
+            <button onClick={() => setIsJoining(false)} className="absolute top-4 right-4 text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors">
+              <X size={20} />
+            </button>
+            <h2 className="text-xl font-[800] text-[var(--text-main)] mb-6 uppercase tracking-tighter">Zadej kód (3 písmena)</h2>
+            <input 
+              type="text" 
+              maxLength={3}
+              value={joinCode}
+              onChange={e => setJoinCode(e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))}
+              placeholder="XYZ"
+              className="w-full bg-[var(--surface-alt)] border border-[var(--border-bright)] rounded-xl p-4 text-center text-4xl font-mono font-bold text-[var(--text-main)] focus:border-[var(--brand)] outline-none transition-all mb-6 uppercase tracking-[0.5em]"
+            />
+            <button 
+              disabled={joinCode.length !== 3}
+              onClick={() => {
+                setSessionId(joinCode);
+                setIsJoining(false);
+                setJoinCode('');
+                setSquares(Array.from({ length: 9 }, (_, i) => ({ id: i, title: '', checked: false })));
+                setMode('setup');
+                setHasWon(false);
+              }}
+              className="w-full py-4 bg-[var(--brand)] text-[var(--bg-app)] rounded-xl font-[800] uppercase tracking-widest text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
+            >
+              Připojit
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
