@@ -510,27 +510,22 @@ export default function App() {
             
             <div className="flex flex-col gap-3">
               <h3 className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] font-bold">Nastavení hry</h3>
-              <div className="grid grid-cols-2 gap-3">
-                <button 
-                  onClick={() => setIsJoining(true)}
-                  className="py-3 px-4 bg-[var(--surface-alt)] hover:bg-[var(--border-dim)] text-[var(--text-main)] rounded-xl text-[10px] font-[800] uppercase tracking-widest transition-all"
-                >
-                  Připojit k cizí
-                </button>
-                <button 
-                  onClick={() => {
-                    if (confirm('Spustit úplně novou hru a vymazat vše?')) {
-                      setSessionId(generateSessionId());
-                      setSquares(Array.from({ length: 9 }, (_, i) => ({ id: i, title: '', checked: false })));
-                      setMode('setup');
-                      setHasWon(false);
-                    }
-                  }}
-                  className="py-3 px-4 bg-[var(--surface-alt)] hover:bg-[var(--border-dim)] text-red-500 rounded-xl text-[10px] font-[800] uppercase tracking-widest transition-all"
-                >
-                  Nová hra
-                </button>
-              </div>
+              <button 
+                onClick={() => {
+                  if (confirm('Opravdu chcete ukončit hru a vrátit se na domovskou obrazovku?')) {
+                    localStorage.removeItem('dnb-session');
+                    setSessionId('');
+                    setMode('setup');
+                    setSquares(Array.from({ length: 9 }, (_, i) => ({ id: i, title: '', checked: false })));
+                    setHasWon(false);
+                    setWonAt(null);
+                    window.history.replaceState({}, '', window.location.pathname);
+                  }
+                }}
+                className="w-full py-3 px-4 bg-[var(--surface-alt)] hover:bg-[var(--border-dim)] text-red-500 rounded-xl text-[10px] font-[800] uppercase tracking-widest transition-all"
+              >
+                Ukončit hru
+              </button>
             </div>
             
             <div className="h-[1px] bg-[var(--border-bright)] w-full my-2"></div>
@@ -570,13 +565,15 @@ export default function App() {
                 Hrát znovu (Stejné songy)
               </button>
               <button onClick={() => { 
-                setSessionId(generateSessionId());
+                localStorage.removeItem('dnb-session');
+                setSessionId('');
                 setSquares(Array.from({ length: 9 }, (_, i) => ({ id: i, title: '', checked: false }))); 
                 setMode('setup'); 
                 setHasWon(false); 
                 setWonAt(null);
-              }} className="w-full py-4 bg-[var(--surface-alt)] text-[var(--text-main)] border border-[var(--border-bright)] rounded-xl font-[800] uppercase tracking-widest text-xs hover:border-[var(--brand)] transition-colors">
-                Založit novou hru
+                window.history.replaceState({}, '', window.location.pathname);
+              }} className="w-full py-4 bg-[var(--surface-alt)] text-red-500 border border-[var(--border-bright)] rounded-xl font-[800] uppercase tracking-widest text-xs hover:border-red-500 transition-colors">
+                Ukončit hru
               </button>
             </div>
           </motion.div>
