@@ -110,7 +110,7 @@ export default function App() {
   const [activeSearchIndex, setActiveSearchIndex] = useState<number | null>(null);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !sessionId) return;
     
     // Create/touch room so rules pass
     const roomRef = doc(db, 'rooms', sessionId);
@@ -139,7 +139,7 @@ export default function App() {
   }, [sessionId, user]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !sessionId) return;
     const playerRef = doc(db, `rooms/${sessionId}/players`, user.uid);
     setDoc(playerRef, {
       name: user.displayName || 'Hráč',
