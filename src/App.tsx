@@ -6,8 +6,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  Play, 
-  Plus, 
   Sun,
   Moon,
   Search,
@@ -346,25 +344,23 @@ export default function App() {
 
       <main className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-12 gap-12 flex-1">
         <div className="lg:col-span-8 flex flex-col items-center">
-          {/* Mode Switcher */}
-          <div className="flex w-full bg-[var(--surface)] p-1 rounded-xl border border-[var(--border-bright)] mb-8 shadow-sm">
-            <button
-              onClick={() => setMode('setup')}
-              className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg text-xs font-[800] tracking-widest transition-all ${
-                mode === 'setup' ? 'bg-[var(--border-bright)] text-[var(--text-main)] shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'
-              }`}
-            >
-              <Plus size={16} /> SETUP
-            </button>
-            <button
-              onClick={() => setMode('play')}
-              className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg text-xs font-[800] tracking-widest transition-all ${
-                mode === 'play' ? 'bg-[var(--brand)] text-[var(--bg-app)] shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'
-              }`}
-            >
-              <Play size={16} /> PLAY
-            </button>
-          </div>
+          {mode === 'setup' && (
+            <div className="w-full max-w-[600px] mb-8">
+              <div className="bg-[var(--surface-alt)] p-4 rounded-xl border border-[var(--border-bright)] flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-[var(--text-main)] mb-1">Nastavit hrací plochu</h3>
+                  <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">Vyplňte všech 9 písniček</p>
+                </div>
+                <button
+                  disabled={!isFull}
+                  onClick={() => setMode('play')}
+                  className="py-3 px-8 bg-[var(--brand)] text-[var(--bg-app)] rounded-lg text-xs font-[800] uppercase tracking-widest transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 shadow-sm"
+                >
+                  Hrát
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-3 gap-4 w-full aspect-square max-w-[600px]">
             <AnimatePresence mode="popLayout">
