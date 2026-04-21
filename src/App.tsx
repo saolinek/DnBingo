@@ -103,6 +103,7 @@ export default function App() {
   });
   
   const [hasWon, setHasWon] = useState(false);
+  const [showWinNotification, setShowWinNotification] = useState(false);
   const [wonAt, setWonAt] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<string[]>([]);
@@ -204,6 +205,7 @@ export default function App() {
 
     if (!hasWon && checkWinner(newSquares)) {
       setHasWon(true);
+      setShowWinNotification(true);
       setWonAt(Date.now());
       confetti({
         particleCount: 150,
@@ -287,6 +289,7 @@ export default function App() {
                   setSquares(Array.from({ length: 9 }, (_, i) => ({ id: i, title: '', checked: false })));
                   setMode('setup');
                   setHasWon(false);
+                  setShowWinNotification(false);
                   setWonAt(null);
                 }}
                 className="w-full py-5 bg-[var(--brand)] text-[var(--bg-app)] rounded-2xl font-[800] uppercase tracking-widest text-sm shadow-[0_0_20px_var(--shadow-color)] hover:scale-[1.02] active:scale-95 transition-all"
@@ -508,12 +511,13 @@ export default function App() {
               <h3 className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] font-bold">Nastavení hry</h3>
               <button 
                 onClick={() => {
-                  if (confirm('Opravdu chcete ukončit hru a vrátit se na domovskou obrazovku?')) {
+                  if (confirm('Opravdu chcete opustit hru a vrátit se na domovskou obrazovku?')) {
                     localStorage.removeItem('dnb-session');
                     setSessionId('');
                     setMode('setup');
                     setSquares(Array.from({ length: 9 }, (_, i) => ({ id: i, title: '', checked: false })));
                     setHasWon(false);
+                    setShowWinNotification(false);
                     setWonAt(null);
                     window.history.replaceState({}, '', window.location.pathname);
                   }
@@ -546,35 +550,45 @@ export default function App() {
       </div>
       )}
 
-      {/* Winning Modal */}
-      {hasWon && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-center justify-center p-4">
+      {/* Winning Notification */}
+      <AnimatePresence>
+        {hasWon && showWinNotification && (
           <motion.div 
-            initial={{ scale: 0.8, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="bg-[var(--surface)] p-8 rounded-3xl border border-[var(--brand)] shadow-[0_0_50px_var(--shadow-color)] max-w-sm w-full text-center flex flex-col gap-6"
+            initial={{ opacity: 0, y: 50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.9 }}
+            className="fixed bottom-8 right-8 z-50 pointer-events-auto max-w-sm w-full"
           >
-            <h2 className="text-4xl font-[800] text-[var(--brand)] italic">BINGO!</h2>
-            <p className="text-[var(--text-muted)] text-sm">Právě jsi vyhrál. Co dál?</p>
-            <div className="flex flex-col gap-3">
-              <button onClick={() => { setSquares(prev => prev.map(s => ({...s, checked: false}))); setHasWon(false); setWonAt(null); }} className="w-full py-4 bg-[var(--brand)] text-[var(--bg-app)] rounded-xl font-[800] uppercase tracking-widest text-xs">
-                Hrát znovu (Stejné songy)
-              </button>
-              <button onClick={() => { 
-                localStorage.removeItem('dnb-session');
-                setSessionId('');
-                setSquares(Array.from({ length: 9 }, (_, i) => ({ id: i, title: '', checked: false }))); 
-                setMode('setup'); 
-                setHasWon(false); 
-                setWonAt(null);
-                window.history.replaceState({}, '', window.location.pathname);
-              }} className="w-full py-4 bg-[var(--surface-alt)] text-red-500 border border-[var(--border-bright)] rounded-xl font-[800] uppercase tracking-widest text-xs hover:border-red-500 transition-colors">
-                Ukončit hru
+            <div className="bg-[var(--surface)] p-6 rounded-3xl border border-[#ec4899] shadow-[0_10px_40px_rgba(236,72,153,0.3)] flex flex-col gap-4 relative overflow-hidden">
+              <div className="absolute -top-10 -right-10 w-32 h-32 bg-[#ec4899] rounded-full blur-[60px] opacity-20 pointer-events-none"></div>
+              
+              <div className="flex items-start justify-between">
+                <div>
+                  <h2 className="text-3xl font-[800] text-[#ec4899] italic tracking-tighter">BINGO!</h2>
+                  {(() => {
+                    const winnersList = players.filter(pl => pl.hasWon);
+                    const rankIndex = winnersList.findIndex(w => w.id === user?.uid);
+                    if (rankIndex >= 0) {
+                      return <p className="text-[var(--text-main)] text-sm font-bold mt-1">Ukončil jsi hru na krásném <span className="text-[#ec4899]">{rankIndex + 1}. místě</span>!</p>;
+                    }
+                    return <p className="text-[var(--text-main)] text-sm font-bold mt-1">Gratulujeme, máš Bingo!</p>;
+                  })()}
+                </div>
+                <button onClick={() => setShowWinNotification(false)} className="p-2 bg-[var(--surface-alt)] hover:bg-[var(--border-dim)] rounded-full text-[var(--text-muted)] transition-colors">
+                  <X size={16} />
+                </button>
+              </div>
+
+              <button 
+                onClick={() => setShowWinNotification(false)} 
+                className="w-full py-3 bg-[var(--surface-alt)] text-[var(--text-main)] border border-[var(--border-bright)] rounded-xl font-[800] uppercase tracking-widest text-xs hover:border-[#ec4899] transition-colors"
+              >
+                Pokračovat ve hře
               </button>
             </div>
           </motion.div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
 
       {/* Join Room Modal */}
       {isJoining && (
