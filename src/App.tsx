@@ -128,6 +128,7 @@ export default function App() {
     // Sync players
     const q = query(collection(db, `rooms/${sessionId}/players`));
     const unsubscribe = onSnapshot(q, (snapshot) => {
+      console.log(`Syncing players for room ${sessionId}, count: ${snapshot.size}`);
       const p: any[] = [];
       snapshot.forEach(d => {
         p.push({ id: d.id, ...d.data() });
@@ -142,6 +143,8 @@ export default function App() {
         return (b.checkedCount || 0) - (a.checkedCount || 0);
       });
       setPlayers(p);
+    }, (err) => {
+      console.error("Firestore snapshot error:", err);
     });
 
     return () => unsubscribe();
@@ -492,34 +495,53 @@ export default function App() {
                     Přihlásit Googlem
                   </button>
                 </div>
+              ) : players.length === 0 ? (
+                <div className="flex flex-col items-center justify-center p-8 text-center border border-dashed border-[var(--border-bright)] rounded-2xl gap-2">
+                  <Loader2 className="w-5 h-5 animate-spin text-[var(--brand)] mb-2" />
+                  <p className="text-xs font-bold text-[var(--text-main)]">HledÃ¡m ostatnÃ­ hrÃ¡Ä e...</p>
+                  <p className="text-[10px] text-[var(--text-muted)]">ZatÃ­m jsi tu v tÃ©to mÃ­stnosti sÃ¡m nebo se pÅ™ipojujeÅ¡.</p>
+                </div>
               ) : (
-                players.map((p, index) => {
+                players.map((p) => {
                   const winnersList = players.filter(pl => pl.hasWon);
                   const rankIndex = winnersList.findIndex(w => w.id === p.id);
                   const isWinner = p.hasWon;
                   const rankString = isWinner ? `${rankIndex + 1}. BINGO` : '';
 
                   return (
-                    <div key={p.id} className={`flex items-center justify-between ${p.id !== user.uid && 'opacity-60'} transition-opacity`}>
-                      <span className="flex items-center gap-3">
-                        <span className={`w-8 h-8 rounded-lg ${isWinner ? 'bg-[#ec4899] text-white shadow-[0_0_10px_#ec4899]' : p.id === user.uid ? 'bg-[var(--brand)] text-[var(--bg-app)]' : 'bg-[var(--surface-alt)] border border-[var(--border-bright)] text-[var(--text-main)]'} font-[800] flex items-center justify-center text-[10px] tracking-tighter`}>
-                          {p.name.substring(0, 2).toUpperCase()}
-                        </span>
-                        <span className="font-bold tracking-tight text-sm flex flex-col items-start gap-0.5">
-                          <span className="flex gap-2 items-center">
-                            {p.name} {p.id === user.uid && <span className="text-[10px] text-[var(--brand)]">(Ty)</span>}
+                    <div key={p.id} className={`flex items-center justify-between p-3 rounded-xl transition-all ${p.id === user.uid ? 'bg-[var(--brand)]/5 border border-[var(--brand)]/20' : 'bg-[var(--surface-alt)]/30 border border-transparent'} ${p.id !== user.uid && !isWinner && 'opacity-70'}`}>
+                      <div className="flex items-center gap-3">
+                        <div className="relative">
+                          <span className={`w-10 h-10 rounded-xl ${isWinner ? 'bg-[#ec4899] text-white shadow-[0_0_15px_rgba(236,72,153,0.4)]' : p.id === user.uid ? 'bg-[var(--brand)] text-[var(--bg-app)]' : 'bg-[var(--surface-alt)] border border-[var(--border-bright)] text-[var(--text-main)]'} font-[900] flex items-center justify-center text-xs tracking-tighter transition-all`}>
+                            {p.name.substring(0, 2).toUpperCase()}
                           </span>
-                          {!isWinner && (
-                            <span className="text-[10px] text-[var(--text-muted)] font-mono">
-                              SCORE: {p.checkedCount || 0}/9
-                            </span>
+                          {isWinner && (
+                            <div className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-400 rounded-full border-2 border-[var(--surface)] flex items-center justify-center text-[8px]">ðŸ†</div>
                           )}
-                        </span>
-                      </span>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="font-bold tracking-tight text-sm flex gap-2 items-center text-[var(--text-main)]">
+                            {p.name} {p.id === user.uid && <span className="text-[10px] text-[var(--brand)] uppercase font-black">(Ty)</span>}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <div className="flex gap-0.5">
+                              {Array.from({length: 9}).map((_, i) => (
+                                <div key={i} className={`w-1.5 h-1.5 rounded-full ${i < (p.checkedCount || 0) ? (isWinner ? 'bg-[#ec4899]' : 'bg-[var(--brand)]') : 'bg-[var(--border-bright)]'}`} />
+                              ))}
+                            </div>
+                            <span className="text-[10px] text-[var(--text-muted)] font-mono font-bold uppercase">
+                              {p.checkedCount || 0}/9
+                            </span>
+                          </div>
+                        </div>
+                      </div>
                       {isWinner && (
-                        <span className={`text-[10px] font-mono tracking-tighter uppercase font-bold text-[#ec4899]`}>
-                          {rankString}
-                        </span>
+                        <div className="flex flex-col items-end">
+                          <span className={`text-[11px] font-black tracking-tighter uppercase text-[#ec4899] italic`}>
+                            {rankIndex === 0 ? 'VÃTÄšZ!' : `${rankIndex + 1}. MÃSTO`}
+                          </span>
+                          <span className="text-[8px] text-[var(--text-muted)] uppercase font-bold">BINGO</span>
+                        </div>
                       )}
                     </div>
                   );

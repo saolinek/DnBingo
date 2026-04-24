@@ -6,43 +6,31 @@ service cloud.firestore {
     }
 
     function isSignedIn() { return request.auth != null; }
-    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
+    function isAdmin() { return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)); }
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
     function isValidId(id) { return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
 
     function isValidRoom(data) {
-      return data.keys().hasAll(['createdAt']) && data.keys().size() == 1
-        && data.createdAt == request.time;
+      return data.keys().hasAll(['createdAt']) && data.keys().size() >= 1;
     }
 
     function isValidPlayer(data) {
       return data.keys().hasAll(['name', 'checkedCount', 'hasWon', 'updatedAt']) 
-        && data.keys().size() >= 4 && data.keys().size() <= 5
+        && data.keys().size() >= 4 && data.keys().size() <= 6
         && (!data.keys().hasAny(['wonAt']) || data.wonAt is int)
         && data.name is string && data.name.size() > 0 && data.name.size() <= 64
         && data.checkedCount is int && data.checkedCount >= 0 && data.checkedCount <= 9
-        && data.hasWon is bool
-        && data.updatedAt == request.time;
+        && data.hasWon is bool;
     }
 
     match /rooms/{roomId} {
-      allow get: if isVerified() && isValidId(roomId);
-      allow create: if isVerified() && isValidId(roomId) && isValidRoom(incoming());
+      allow get: if isSignedIn() && isValidId(roomId);
+      allow create, update: if isSignedIn() && isValidId(roomId);
       
       match /players/{playerId} {
-        allow list, get: if isVerified() && isValidId(roomId); // Players can see the room state
-        // Only the player themselves can create/update their presence
-        allow create: if isVerified() && isValidId(roomId) && isValidId(playerId) 
-          && request.auth.uid == playerId
-          && isValidPlayer(incoming());
-          
-        allow update: if isVerified() && isValidId(roomId) && isValidId(playerId)
-          && request.auth.uid == playerId
-          && isValidPlayer(incoming())
-          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'checkedCount', 'hasWon', 'wonAt', 'updatedAt']);
-          
-        allow delete: if isVerified() && isValidId(roomId) && isValidId(playerId) && request.auth.uid == playerId;
+        allow list, get: if isSignedIn() && isValidId(roomId); 
+        allow create, update, delete: if isSignedIn() && isValidId(roomId) && request.auth.uid == playerId;
       }
     }
   }
