@@ -69,7 +69,8 @@ export default function App() {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
       } catch (e) {
         console.error("Failed to parse saved state", e);
       }
@@ -498,8 +499,8 @@ export default function App() {
               ) : players.length === 0 ? (
                 <div className="flex flex-col items-center justify-center p-8 text-center border border-dashed border-[var(--border-bright)] rounded-2xl gap-2">
                   <Loader2 className="w-5 h-5 animate-spin text-[var(--brand)] mb-2" />
-                  <p className="text-xs font-bold text-[var(--text-main)]">HledÃ¡m ostatnÃ­ hrÃ¡Ä e...</p>
-                  <p className="text-[10px] text-[var(--text-muted)]">ZatÃ­m jsi tu v tÃ©to mÃ­stnosti sÃ¡m nebo se pÅ™ipojujeÅ¡.</p>
+                  <p className="text-xs font-bold text-[var(--text-main)]">Hledám ostatní hráče...</p>
+                  <p className="text-[10px] text-[var(--text-muted)]">Zatím jsi tu v této místnosti sám nebo se připojuješ.</p>
                 </div>
               ) : (
                 players.map((p) => {
@@ -513,15 +514,15 @@ export default function App() {
                       <div className="flex items-center gap-3">
                         <div className="relative">
                           <span className={`w-10 h-10 rounded-xl ${isWinner ? 'bg-[#ec4899] text-white shadow-[0_0_15px_rgba(236,72,153,0.4)]' : p.id === user.uid ? 'bg-[var(--brand)] text-[var(--bg-app)]' : 'bg-[var(--surface-alt)] border border-[var(--border-bright)] text-[var(--text-main)]'} font-[900] flex items-center justify-center text-xs tracking-tighter transition-all`}>
-                            {p.name.substring(0, 2).toUpperCase()}
+                            {(p.name || 'Hráč').substring(0, 2).toUpperCase()}
                           </span>
                           {isWinner && (
-                            <div className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-400 rounded-full border-2 border-[var(--surface)] flex items-center justify-center text-[8px]">ðŸ†</div>
+                            <div className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-400 rounded-full border-2 border-[var(--surface)] flex items-center justify-center text-[8px]">🏆</div>
                           )}
                         </div>
                         <div className="flex flex-col">
                           <span className="font-bold tracking-tight text-sm flex gap-2 items-center text-[var(--text-main)]">
-                            {p.name} {p.id === user.uid && <span className="text-[10px] text-[var(--brand)] uppercase font-black">(Ty)</span>}
+                            {p.name || 'Hráč'} {p.id === user.uid && <span className="text-[10px] text-[var(--brand)] uppercase font-black">(Ty)</span>}
                           </span>
                           <div className="flex items-center gap-2">
                             <div className="flex gap-0.5">
@@ -538,7 +539,7 @@ export default function App() {
                       {isWinner && (
                         <div className="flex flex-col items-end">
                           <span className={`text-[11px] font-black tracking-tighter uppercase text-[#ec4899] italic`}>
-                            {rankIndex === 0 ? 'VÃTÄšZ!' : `${rankIndex + 1}. MÃSTO`}
+                            {rankIndex === 0 ? 'VÍTĚZ!' : `${rankIndex + 1}. MÍSTO`}
                           </span>
                           <span className="text-[8px] text-[var(--text-muted)] uppercase font-bold">BINGO</span>
                         </div>
