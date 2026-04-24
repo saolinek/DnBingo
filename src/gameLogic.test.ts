@@ -11,6 +11,7 @@ const createBoard = (checkedIndexes: number[]): BingoSquare[] =>
 
 test('hasBingo detects complete winning row only when titles are filled', () => {
   const board = createBoard([0, 1, 2]);
+  board[0].artworkUrl = 'https://example.com/cover.jpg';
   assert.equal(hasBingo(board), true);
 
   const boardWithEmptyTitle = createBoard([0, 1, 2]);

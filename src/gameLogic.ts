@@ -2,6 +2,7 @@ export interface BingoSquare {
   id: number;
   title: string;
   checked: boolean;
+  artworkUrl?: string;
 }
 
 export interface SortableTimestamp {

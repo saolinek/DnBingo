@@ -13,7 +13,7 @@ import {
   X
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { auth, db } from './firebase';
+import { auth, db, firebaseInitError } from './firebase';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, serverTimestamp, collection, query, runTransaction } from 'firebase/firestore';
 import { QRCodeSVG } from 'qrcode.react';
@@ -25,6 +25,7 @@ interface TrackSuggestion {
   title: string;
   album?: string;
   sourceUrl?: string;
+  artworkUrl?: string;
 }
 
 const STORAGE_KEY = 'dnb-bingo-state';
@@ -63,6 +64,9 @@ const normalizeText = (value: string) =>
 
 const createTrackLabel = (track: Pick<TrackSuggestion, 'artist' | 'title'>) => `${track.artist} - ${track.title}`;
 
+const createEmptyBoard = (): BingoSquare[] =>
+  Array.from({ length: 9 }, (_, i) => ({ id: i, title: '', checked: false }));
+
 const scoreSuggestion = (track: TrackSuggestion, query: string) => {
   const normalizedQuery = normalizeText(query);
   const normalizedTitle = normalizeText(track.title);
@@ -82,6 +86,7 @@ const scoreSuggestion = (track: TrackSuggestion, query: string) => {
 };
 
 export default function App() {
+  const [serviceWarning, setServiceWarning] = useState<string | null>(firebaseInitError);
   const [sessionId, setSessionId] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     const roomParam = params.get('room');
@@ -113,19 +118,27 @@ export default function App() {
         console.error("Failed to parse saved state", e);
       }
     }
-    return Array.from({ length: 9 }, (_, i) => ({ id: i, title: '', checked: false }));
+    return createEmptyBoard();
   });
 
   const [user, setUser] = useState<User | null>(null);
   const [players, setPlayers] = useState<PlayerRecord[]>([]);
+  const servicesAvailable = Boolean(auth && db);
 
   useEffect(() => {
+    if (!auth) return;
+
     return onAuthStateChanged(auth, u => {
       setUser(u);
     });
   }, []);
 
   const handleLogin = async () => {
+    if (!auth) {
+      setServiceWarning('Prihlaseni je docasne nedostupne. Zkus prosim obnovit stranku.');
+      return;
+    }
+
     const provider = new GoogleAuthProvider();
     try {
       await signInWithPopup(auth, provider);
@@ -162,7 +175,7 @@ export default function App() {
   const searchAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    if (!user || !sessionId) return;
+    if (!user || !sessionId || !db) return;
     
     // Create/touch room so rules pass
     const roomRef = doc(db, 'rooms', sessionId);
@@ -205,7 +218,7 @@ export default function App() {
   }, [players, user, hasWon, wonAt, winOrder]);
 
   useEffect(() => {
-    if (!user || !sessionId) return;
+    if (!user || !sessionId || !db) return;
     if (!hasLoadedPlayers) return;
 
     const remotePlayer = players.find(player => player.id === user.uid);
@@ -266,7 +279,7 @@ export default function App() {
   }, [searchQuery, activeSearchIndex]);
 
   const claimWin = useCallback(async (currentSquares: BingoSquare[]) => {
-    if (!user || !sessionId || hasWon || isClaimingWin) return;
+    if (!user || !sessionId || !db || hasWon || isClaimingWin) return;
 
     const roomRef = doc(db, 'rooms', sessionId);
     const playerRef = doc(db, `rooms/${sessionId}/players`, user.uid);
@@ -340,8 +353,14 @@ export default function App() {
     }
   };
 
+  const updateSquare = (id: number, updates: Partial<BingoSquare>) => {
+    setSquares(prev => prev.map(square => (
+      square.id === id ? { ...square, ...updates } : square
+    )));
+  };
+
   const updateTitle = (id: number, title: string) => {
-    setSquares(prev => prev.map(s => s.id === id ? { ...s, title } : s));
+    updateSquare(id, { title, artworkUrl: undefined });
   };
 
   const searchTracks = useCallback(async (q: string) => {
@@ -379,6 +398,7 @@ export default function App() {
           trackName?: string;
           collectionName?: string;
           trackViewUrl?: string;
+          artworkUrl100?: string;
         }>;
       };
 
@@ -392,6 +412,7 @@ export default function App() {
           title: item.trackName,
           album: item.collectionName,
           sourceUrl: item.trackViewUrl,
+          artworkUrl: item.artworkUrl100,
         };
         const dedupeKey = normalizeText(createTrackLabel(suggestion));
         if (!dedupedSuggestions.has(dedupeKey)) {
@@ -422,7 +443,10 @@ export default function App() {
 
   const selectSearchResult = (track: TrackSuggestion) => {
     if (activeSearchIndex !== null) {
-      updateTitle(activeSearchIndex, createTrackLabel(track));
+      updateSquare(activeSearchIndex, {
+        title: createTrackLabel(track),
+        artworkUrl: track.artworkUrl,
+      });
       setActiveSearchIndex(null);
       setSearchQuery('');
       setSearchResults([]);
@@ -433,6 +457,14 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[var(--bg-app)] text-[var(--text-main)] select-none font-sans flex flex-col">
+      {serviceWarning && (
+        <div className="w-full px-6 pt-6">
+          <div className="max-w-6xl mx-auto rounded-2xl border border-amber-400/40 bg-amber-300/10 px-4 py-3 text-sm font-semibold text-amber-800 shadow-sm">
+            {serviceWarning}
+          </div>
+        </div>
+      )}
+
       {!sessionId ? (
         <div className="flex-1 flex flex-col items-center justify-center p-6 relative">
           <div className="absolute top-6 right-6">
@@ -459,7 +491,7 @@ export default function App() {
               <button 
                 onClick={() => {
                   setSessionId(generateSessionId());
-                  setSquares(Array.from({ length: 9 }, (_, i) => ({ id: i, title: '', checked: false })));
+                  setSquares(createEmptyBoard());
                   setMode('setup');
                   setHasWon(false);
                   setShowWinNotification(false);
@@ -551,7 +583,17 @@ export default function App() {
                   className="h-full relative overflow-visible"
                 >
                   {mode === 'setup' ? (
-                    <div className="h-full relative group">
+                    <div className="h-full relative group rounded-xl border border-[var(--border-bright)] bg-[var(--surface)] shadow-sm overflow-hidden">
+                      {square.artworkUrl && (
+                        <div className="absolute inset-x-0 top-0 h-[42%] pointer-events-none overflow-hidden">
+                          <img
+                            src={square.artworkUrl}
+                            alt={square.title || `Artwork for track ${idx + 1}`}
+                            className="w-full h-full object-cover opacity-95"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[var(--surface)]/18 to-[var(--surface)]" />
+                        </div>
+                      )}
                       <textarea
                         value={square.title}
                         onFocus={() => {
@@ -563,8 +605,8 @@ export default function App() {
                           setSearchQuery(e.target.value);
                         }}
                         placeholder={`Track ${idx + 1}...`}
-                        className={`w-full h-full bg-[var(--surface)] border rounded-xl p-4 text-xs md:text-sm font-bold focus:border-[var(--brand)] outline-none transition-all resize-none placeholder:text-[var(--border-bright)] text-[var(--text-main)] shadow-sm ${
-                          activeSearchIndex === square.id ? 'border-[var(--brand)] ring-4 ring-[var(--brand)]/5' : 'border-[var(--border-bright)]'
+                        className={`relative z-10 w-full h-full bg-transparent p-4 pt-[45%] text-xs md:text-sm font-bold outline-none transition-all resize-none placeholder:text-[var(--border-bright)] text-[var(--text-main)] ${
+                          activeSearchIndex === square.id ? 'ring-4 ring-[var(--brand)]/5' : ''
                         }`}
                       />
                       
@@ -615,7 +657,7 @@ export default function App() {
                     <button
                       disabled={!square.title.trim()}
                       onClick={() => handleSquareClick(square.id)}
-                      className={`group w-full h-full relative overflow-hidden flex flex-col items-center justify-center p-4 text-center rounded-xl border transition-all duration-300 ${
+                      className={`group w-full h-full relative overflow-hidden flex flex-col rounded-xl border transition-all duration-300 ${
                         !square.title.trim() 
                           ? 'bg-[var(--surface)] border-[var(--border-bright)] opacity-20'
                           : square.checked
@@ -623,6 +665,27 @@ export default function App() {
                             : 'bg-gradient-to-br from-[var(--surface)] to-[var(--surface-alt)] border-[var(--border-bright)] hover:border-[var(--brand)] active:scale-95 shadow-sm'
                       }`}
                     >
+                      <div className="relative w-full h-[54%] overflow-hidden">
+                        {square.artworkUrl ? (
+                          <>
+                            <img
+                              src={square.artworkUrl}
+                              alt={square.title || `Artwork for track ${idx + 1}`}
+                              className={`w-full h-full object-cover transition-all duration-300 ${
+                                square.checked ? 'scale-105 brightness-90' : 'group-hover:scale-105'
+                              }`}
+                            />
+                            <div className={`absolute inset-0 ${
+                              square.checked ? 'bg-[var(--bg-app)]/18' : 'bg-[var(--bg-app)]/10'
+                            }`} />
+                          </>
+                        ) : (
+                          <div className="w-full h-full bg-gradient-to-br from-[var(--surface)] to-[var(--surface-alt)]" />
+                        )}
+                      </div>
+                      <div className={`relative w-full flex-1 flex flex-col items-center justify-center px-3 py-3 text-center border-t ${
+                        square.checked ? 'border-[var(--brand)]/30 bg-[var(--surface)]/94' : 'border-[var(--border-bright)] bg-[var(--surface)]/96'
+                      }`}>
                       <div className={`absolute top-2.5 right-2.5 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
                         square.checked ? 'bg-[var(--brand)] border-[var(--brand)]' : 'border-[var(--border-bright)] bg-[var(--bg-app)]'
                       }`}>
@@ -632,16 +695,17 @@ export default function App() {
                           </svg>
                         )}
                       </div>
-                      <span className={`text-[9px] uppercase tracking-widest font-mono mb-1 transition-colors ${
+                      <span className={`relative z-10 text-[9px] uppercase tracking-widest font-mono mb-1 transition-colors ${
                         square.checked ? 'text-[var(--brand)]' : 'text-[var(--text-muted)]'
                       }`}>
                         Track {idx + 1}
                       </span>
-                      <span className={`text-xs md:text-sm font-[800] leading-tight tracking-tight uppercase break-words transition-colors ${
+                      <span className={`relative z-10 text-xs md:text-sm font-[800] leading-tight tracking-tight uppercase break-words transition-colors ${
                         square.checked ? (isDarkMode ? 'text-white' : 'text-[var(--text-main)]') : 'text-[var(--text-main)] group-hover:text-[var(--brand)]'
                       }`}>
                         {square.title || ''}
                       </span>
+                      </div>
                     </button>
                   )}
                 </motion.div>
@@ -656,8 +720,14 @@ export default function App() {
             <div className="space-y-6">
               {!user ? (
                 <div className="flex flex-col items-center justify-center p-6 text-center border border-dashed border-[var(--border-bright)] rounded-xl gap-4">
-                  <p className="text-xs text-[var(--text-muted)]">Pro zobrazení hráčů se musíš přihlásit</p>
-                  <button onClick={handleLogin} className="py-2 px-4 bg-[var(--brand)] text-[var(--bg-app)] rounded-lg text-xs font-bold uppercase tracking-widest shadow-sm">
+                  <p className="text-xs text-[var(--text-muted)]">
+                    {servicesAvailable ? 'Pro zobrazení hráčů se musíš přihlásit' : 'Online funkce jsou teď nedostupné, ale herní kartu můžeš vyplnit lokálně.'}
+                  </p>
+                  <button
+                    onClick={handleLogin}
+                    disabled={!servicesAvailable}
+                    className="py-2 px-4 bg-[var(--brand)] text-[var(--bg-app)] rounded-lg text-xs font-bold uppercase tracking-widest shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
                     Přihlásit Googlem
                   </button>
                 </div>
@@ -725,7 +795,7 @@ export default function App() {
                     safeRemoveStorage('dnb-session');
                     setSessionId('');
                     setMode('setup');
-                    setSquares(Array.from({ length: 9 }, (_, i) => ({ id: i, title: '', checked: false })));
+                    setSquares(createEmptyBoard());
                     setHasWon(false);
                     setShowWinNotification(false);
                     setWonAt(null);
@@ -825,7 +895,7 @@ export default function App() {
                 setSessionId(joinCode);
                 setIsJoining(false);
                 setJoinCode('');
-                setSquares(Array.from({ length: 9 }, (_, i) => ({ id: i, title: '', checked: false })));
+                setSquares(createEmptyBoard());
                 setMode('setup');
                 setHasWon(false);
                 setWonAt(null);
