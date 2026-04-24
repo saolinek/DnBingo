@@ -15,6 +15,10 @@ View your app in AI Studio: https://ai.studio/apps/b900b33b-b0d8-46ef-9822-9f5b4
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
+2. Run the app:
    `npm run dev`
+
+## Track autocomplete
+
+Track suggestions are loaded automatically from the public Apple iTunes Search API.
+No API key or extra local configuration is required.

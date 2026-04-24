@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
+import {
   Sun,
   Moon,
   Search,
@@ -13,16 +13,18 @@ import {
   X
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { GoogleGenAI, Type } from "@google/genai";
 import { auth, db } from './firebase';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User } from 'firebase/auth';
-import { doc, setDoc, onSnapshot, serverTimestamp, collection, query } from 'firebase/firestore';
+import { doc, setDoc, onSnapshot, serverTimestamp, collection, query, runTransaction } from 'firebase/firestore';
 import { QRCodeSVG } from 'qrcode.react';
+import { BingoSquare, PlayerRecord, getCheckedCount, shouldClaimWin, sortPlayers } from './gameLogic';
 
-interface BingoSquare {
-  id: number;
+interface TrackSuggestion {
+  id: string;
+  artist: string;
   title: string;
-  checked: boolean;
+  album?: string;
+  sourceUrl?: string;
 }
 
 const STORAGE_KEY = 'dnb-bingo-state';
@@ -52,16 +54,32 @@ const generateSessionId = () => {
   return Array.from({length: 3}, () => chars.charAt(Math.floor(Math.random() * chars.length))).join('');
 };
 
-// Initialize Gemini safely
-let ai: GoogleGenAI | null = null;
-try {
-  const apiKey = process.env.GEMINI_API_KEY || '';
-  if (apiKey) {
-    ai = new GoogleGenAI({ apiKey });
-  }
-} catch (e) {
-  console.warn("Gemini API key is not configured. Search will be unavailable.");
-}
+const normalizeText = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+
+const createTrackLabel = (track: Pick<TrackSuggestion, 'artist' | 'title'>) => `${track.artist} - ${track.title}`;
+
+const scoreSuggestion = (track: TrackSuggestion, query: string) => {
+  const normalizedQuery = normalizeText(query);
+  const normalizedTitle = normalizeText(track.title);
+  const normalizedArtist = normalizeText(track.artist);
+  const normalizedLabel = normalizeText(createTrackLabel(track));
+
+  if (normalizedLabel === normalizedQuery) return 120;
+  if (normalizedTitle === normalizedQuery) return 110;
+  if (normalizedArtist === normalizedQuery) return 100;
+  if (normalizedLabel.startsWith(normalizedQuery)) return 90;
+  if (normalizedTitle.startsWith(normalizedQuery)) return 80;
+  if (normalizedArtist.startsWith(normalizedQuery)) return 70;
+  if (normalizedTitle.includes(normalizedQuery)) return 60;
+  if (normalizedArtist.includes(normalizedQuery)) return 50;
+  if (normalizedLabel.includes(normalizedQuery)) return 40;
+  return 0;
+};
 
 export default function App() {
   const [sessionId, setSessionId] = useState(() => {
@@ -99,7 +117,7 @@ export default function App() {
   });
 
   const [user, setUser] = useState<User | null>(null);
-  const [players, setPlayers] = useState<any[]>([]);
+  const [players, setPlayers] = useState<PlayerRecord[]>([]);
 
   useEffect(() => {
     return onAuthStateChanged(auth, u => {
@@ -134,10 +152,14 @@ export default function App() {
   const [hasWon, setHasWon] = useState(false);
   const [showWinNotification, setShowWinNotification] = useState(false);
   const [wonAt, setWonAt] = useState<number | null>(null);
+  const [winOrder, setWinOrder] = useState<number | null>(null);
+  const [isClaimingWin, setIsClaimingWin] = useState(false);
+  const [hasLoadedPlayers, setHasLoadedPlayers] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<string[]>([]);
+  const [searchResults, setSearchResults] = useState<TrackSuggestion[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [activeSearchIndex, setActiveSearchIndex] = useState<number | null>(null);
+  const searchAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (!user || !sessionId) return;
@@ -147,47 +169,67 @@ export default function App() {
     setDoc(roomRef, { createdAt: serverTimestamp() }, { merge: true }).catch(console.error);
 
     // Sync players
+    setHasLoadedPlayers(false);
     const q = query(collection(db, `rooms/${sessionId}/players`));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       console.log(`Syncing players for room ${sessionId}, count: ${snapshot.size}`);
-      const p: any[] = [];
+      const p: PlayerRecord[] = [];
       snapshot.forEach(d => {
         p.push({ id: d.id, ...d.data() });
       });
-      // Sort by win state: winners first. Then by wonAt timestamp (ascending so first to win is first).
-      p.sort((a, b) => {
-        if (a.hasWon && !b.hasWon) return -1;
-        if (!a.hasWon && b.hasWon) return 1;
-        if (a.hasWon && b.hasWon) {
-           return (a.wonAt || 0) - (b.wonAt || 0);
-        }
-        return (b.checkedCount || 0) - (a.checkedCount || 0);
-      });
-      setPlayers(p);
+      setPlayers(sortPlayers(p));
+      setHasLoadedPlayers(true);
     }, (err) => {
       console.error("Firestore snapshot error:", err);
+      setHasLoadedPlayers(true);
     });
 
     return () => unsubscribe();
   }, [sessionId, user]);
 
   useEffect(() => {
+    if (!user) return;
+
+    const currentPlayer = players.find(player => player.id === user.uid);
+    if (!currentPlayer?.hasWon) return;
+
+    if (!hasWon) {
+      setHasWon(true);
+    }
+    if (typeof currentPlayer.wonAt === 'number' && wonAt === null) {
+      setWonAt(currentPlayer.wonAt);
+    }
+    if (typeof currentPlayer.winOrder === 'number' && winOrder === null) {
+      setWinOrder(currentPlayer.winOrder);
+    }
+  }, [players, user, hasWon, wonAt, winOrder]);
+
+  useEffect(() => {
     if (!user || !sessionId) return;
+    if (!hasLoadedPlayers) return;
+
+    const remotePlayer = players.find(player => player.id === user.uid);
+    if (!hasWon && remotePlayer?.hasWon) return;
+    if (hasWon && (wonAt === null || winOrder === null)) return;
+
     const playerRef = doc(db, `rooms/${sessionId}/players`, user.uid);
-    const checkedCount = squares.filter(s => s.checked).length;
+    const checkedCount = getCheckedCount(squares);
     
-    const dataToSave: any = {
+    const dataToSave: Record<string, unknown> = {
       name: user.displayName || 'Hráč',
       checkedCount,
       hasWon,
       updatedAt: serverTimestamp()
     };
-    if (wonAt) {
+    if (wonAt !== null) {
       dataToSave.wonAt = wonAt;
+    }
+    if (winOrder !== null) {
+      dataToSave.winOrder = winOrder;
     }
     
     setDoc(playerRef, dataToSave, { merge: true }).catch(console.error);
-  }, [hasWon, wonAt, sessionId, user, squares]);
+  }, [hasLoadedPlayers, hasWon, players, wonAt, winOrder, sessionId, user, squares]);
 
   // Sync theme
   useEffect(() => {
@@ -206,33 +248,84 @@ export default function App() {
 
   useEffect(() => {
     if (searchQuery.length <= 2 || activeSearchIndex === null) {
+      searchAbortRef.current?.abort();
       setSearchResults([]);
       setIsSearching(false);
       return;
     }
-    
+
     setIsSearching(true);
     const timer = setTimeout(() => {
-      searchTracks(searchQuery);
-    }, 600); // 600ms debounce
-    
-    return () => clearTimeout(timer);
+      void searchTracks(searchQuery);
+    }, 350);
+
+    return () => {
+      clearTimeout(timer);
+      searchAbortRef.current?.abort();
+    };
   }, [searchQuery, activeSearchIndex]);
 
-  const checkWinner = useCallback((currentSquares: BingoSquare[]) => {
-    const winPatterns = [
-      [0, 1, 2], [3, 4, 5], [6, 7, 8], // Rows
-      [0, 3, 6], [1, 4, 7], [2, 5, 8], // Cols
-      [0, 4, 8], [2, 4, 6]             // Diagonals
-    ];
+  const claimWin = useCallback(async (currentSquares: BingoSquare[]) => {
+    if (!user || !sessionId || hasWon || isClaimingWin) return;
 
-    for (const pattern of winPatterns) {
-      if (pattern.every(index => currentSquares[index].checked && currentSquares[index].title.trim() !== '')) {
-        return true;
-      }
+    const roomRef = doc(db, 'rooms', sessionId);
+    const playerRef = doc(db, `rooms/${sessionId}/players`, user.uid);
+    const claimedAt = Date.now();
+    const checkedCount = getCheckedCount(currentSquares);
+    const knownWinnerCount = players.filter(player => player.hasWon).length;
+
+    setIsClaimingWin(true);
+
+    try {
+      let nextWinOrder = knownWinnerCount + 1;
+
+      await runTransaction(db, async (transaction) => {
+        const roomSnapshot = await transaction.get(roomRef);
+        const playerSnapshot = await transaction.get(playerRef);
+
+        const existingPlayer = playerSnapshot.data() as PlayerRecord | undefined;
+        if (existingPlayer?.hasWon) {
+          nextWinOrder = typeof existingPlayer.winOrder === 'number'
+            ? existingPlayer.winOrder
+            : knownWinnerCount + 1;
+          return;
+        }
+
+        const roomData = roomSnapshot.data() as { winnerCount?: number } | undefined;
+        const currentWinnerCount = Math.max(roomData?.winnerCount || 0, knownWinnerCount);
+        nextWinOrder = currentWinnerCount + 1;
+
+        transaction.set(roomRef, {
+          winnerCount: nextWinOrder,
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+
+        transaction.set(playerRef, {
+          name: user.displayName || 'Hráč',
+          checkedCount,
+          hasWon: true,
+          wonAt: claimedAt,
+          winOrder: nextWinOrder,
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      });
+
+      setHasWon(true);
+      setWonAt(claimedAt);
+      setWinOrder(nextWinOrder);
+      setShowWinNotification(true);
+      confetti({
+        particleCount: 150,
+        spread: 70,
+        origin: { y: 0.6 },
+        colors: [isDarkMode ? '#00FF9C' : '#00CC7A', '#ec4899', '#06b6d4', '#ffffff']
+      });
+    } catch (error) {
+      console.error('Failed to claim bingo win', error);
+    } finally {
+      setIsClaimingWin(false);
     }
-    return false;
-  }, []);
+  }, [user, sessionId, hasWon, isClaimingWin, players, isDarkMode]);
 
   const handleSquareClick = (id: number) => {
     if (mode === 'setup') return;
@@ -242,16 +335,8 @@ export default function App() {
     );
     setSquares(newSquares);
 
-    if (!hasWon && checkWinner(newSquares)) {
-      setHasWon(true);
-      setShowWinNotification(true);
-      setWonAt(Date.now());
-      confetti({
-        particleCount: 150,
-        spread: 70,
-        origin: { y: 0.6 },
-        colors: [isDarkMode ? '#00FF9C' : '#00CC7A', '#ec4899', '#06b6d4', '#ffffff']
-      });
+    if (shouldClaimWin({ hasWon, isClaimingWin, currentSquares: newSquares })) {
+      void claimWin(newSquares);
     }
   };
 
@@ -259,36 +344,85 @@ export default function App() {
     setSquares(prev => prev.map(s => s.id === id ? { ...s, title } : s));
   };
 
-  const searchTracks = async (q: string) => {
+  const searchTracks = useCallback(async (q: string) => {
+    const trimmedQuery = q.trim();
+    if (trimmedQuery.length <= 2) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    searchAbortRef.current?.abort();
+    searchAbortRef.current = controller;
+
     try {
-      if (!ai) {
-        console.warn("AI functions are unavailable");
+      const params = new URLSearchParams({
+        term: trimmedQuery,
+        entity: 'song',
+        media: 'music',
+        limit: '20',
+      });
+
+      const response = await fetch(`https://itunes.apple.com/search?${params.toString()}`, {
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Track search failed with status ${response.status}`);
+      }
+
+      const data = await response.json() as {
+        results?: Array<{
+          trackId?: number;
+          artistName?: string;
+          trackName?: string;
+          collectionName?: string;
+          trackViewUrl?: string;
+        }>;
+      };
+
+      const dedupedSuggestions = new Map<string, TrackSuggestion>();
+      for (const item of data.results || []) {
+        if (!item.trackId || !item.artistName || !item.trackName) continue;
+
+        const suggestion: TrackSuggestion = {
+          id: String(item.trackId),
+          artist: item.artistName,
+          title: item.trackName,
+          album: item.collectionName,
+          sourceUrl: item.trackViewUrl,
+        };
+        const dedupeKey = normalizeText(createTrackLabel(suggestion));
+        if (!dedupedSuggestions.has(dedupeKey)) {
+          dedupedSuggestions.set(dedupeKey, suggestion);
+        }
+      }
+
+      const rankedSuggestions = Array.from(dedupedSuggestions.values())
+        .map(track => ({ track, score: scoreSuggestion(track, trimmedQuery) }))
+        .filter(entry => entry.score > 0)
+        .sort((a, b) => b.score - a.score || a.track.artist.localeCompare(b.track.artist) || a.track.title.localeCompare(b.track.title))
+        .slice(0, 8)
+        .map(entry => entry.track);
+
+      setSearchResults(rankedSuggestions);
+    } catch (e) {
+      if (controller.signal.aborted) {
         return;
       }
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `Provide 5 popular Drum and Bass tracks matching: ${q}. Give ONLY a JSON array of strings in format ["Artist - Title", ...]`,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
-            items: { type: Type.STRING }
-          },
-          tools: [{ googleSearch: {} }]
-        }
-      });
-      const data = JSON.parse(response.text || "[]");
-      setSearchResults(data);
-    } catch (e) {
       console.error("Search failed", e);
+      setSearchResults([]);
     } finally {
-      setIsSearching(false);
+      if (!controller.signal.aborted) {
+        setIsSearching(false);
+      }
     }
-  };
+  }, []);
 
-  const selectSearchResult = (title: string) => {
+  const selectSearchResult = (track: TrackSuggestion) => {
     if (activeSearchIndex !== null) {
-      updateTitle(activeSearchIndex, title);
+      updateTitle(activeSearchIndex, createTrackLabel(track));
       setActiveSearchIndex(null);
       setSearchQuery('');
       setSearchResults([]);
@@ -330,6 +464,7 @@ export default function App() {
                   setHasWon(false);
                   setShowWinNotification(false);
                   setWonAt(null);
+                  setWinOrder(null);
                 }}
                 className="w-full py-5 bg-[var(--brand)] text-[var(--bg-app)] rounded-2xl font-[800] uppercase tracking-widest text-sm shadow-[0_0_20px_var(--shadow-color)] hover:scale-[1.02] active:scale-95 transition-all"
               >
@@ -419,7 +554,10 @@ export default function App() {
                     <div className="h-full relative group">
                       <textarea
                         value={square.title}
-                        onFocus={() => setActiveSearchIndex(square.id)}
+                        onFocus={() => {
+                          setActiveSearchIndex(square.id);
+                          setSearchQuery(square.title);
+                        }}
                         onChange={(e) => {
                           updateTitle(square.id, e.target.value);
                           setSearchQuery(e.target.value);
@@ -435,7 +573,7 @@ export default function App() {
                         <div className="absolute top-[105%] left-0 right-0 z-[100] bg-[var(--surface)] border border-[var(--border-bright)] rounded-xl shadow-2xl overflow-hidden min-w-[200px]">
                           <div className="p-3 border-b border-[var(--border-dim)] flex items-center justify-between bg-[var(--surface-alt)]">
                             <span className="text-[9px] font-800 uppercase tracking-widest text-[var(--text-muted)] flex items-center gap-1">
-                              <Search size={10} /> Searching Web...
+                              <Search size={10} /> Hledam realne tracky...
                             </span>
                             <button onClick={() => { setActiveSearchIndex(null); setSearchResults([]); }}>
                               <X size={12} className="text-[var(--text-muted)]" />
@@ -448,18 +586,25 @@ export default function App() {
                                 <Loader2 size={20} className="animate-spin text-[var(--brand)]" />
                               </div>
                             ) : searchResults.length > 0 ? (
-                              searchResults.map((res, i) => (
+                              searchResults.map((track) => (
                                 <button
-                                  key={i}
-                                  onClick={() => selectSearchResult(res)}
-                                  className="w-full p-4 text-left text-xs font-bold hover:bg-[var(--brand)]/10 transition-colors border-b border-[var(--border-dim)] last:border-0 truncate"
+                                  key={track.id}
+                                  onClick={() => selectSearchResult(track)}
+                                  className="w-full p-4 text-left hover:bg-[var(--brand)]/10 transition-colors border-b border-[var(--border-dim)] last:border-0"
                                 >
-                                  {res}
+                                  <div className="text-xs font-bold truncate text-[var(--text-main)]">
+                                    {createTrackLabel(track)}
+                                  </div>
+                                  {track.album && (
+                                    <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)] truncate mt-1">
+                                      Album: {track.album}
+                                    </div>
+                                  )}
                                 </button>
                               ))
                             ) : (
                               <div className="p-6 text-center text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider">
-                                Žádné výsledky pro "{searchQuery}"
+                                Nenasel jsem zadne realne tracky pro "{searchQuery}"
                               </div>
                             )}
                           </div>
@@ -584,6 +729,7 @@ export default function App() {
                     setHasWon(false);
                     setShowWinNotification(false);
                     setWonAt(null);
+                    setWinOrder(null);
                     try {
                       window.history.replaceState({}, '', window.location.pathname);
                     } catch (e) {}
@@ -683,6 +829,7 @@ export default function App() {
                 setMode('setup');
                 setHasWon(false);
                 setWonAt(null);
+                setWinOrder(null);
               }}
               className="w-full py-4 bg-[var(--brand)] text-[var(--bg-app)] rounded-xl font-[800] uppercase tracking-widest text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
             >
@@ -694,4 +841,3 @@ export default function App() {
     </div>
   );
 }
-
