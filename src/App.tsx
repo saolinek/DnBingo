@@ -50,7 +50,9 @@ export default function App() {
     if (roomParam && roomParam.length === 3) {
       localStorage.setItem('dnb-session', roomParam);
       // Clean up URL without reloading
-      window.history.replaceState({}, '', window.location.pathname);
+      try {
+        window.history.replaceState({}, '', window.location.pathname);
+      } catch (e) {}
       return roomParam;
     }
     return localStorage.getItem('dnb-session') || '';
@@ -96,8 +98,14 @@ export default function App() {
   const [mode, setMode] = useState<'setup' | 'play'>(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
-      const parsed = JSON.parse(saved);
-      return parsed.some((s: BingoSquare) => s.title.trim() !== '') ? 'play' : 'setup';
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.some((s: BingoSquare) => s?.title?.trim() !== '') ? 'play' : 'setup';
+        }
+      } catch (e) {
+        console.warn('Failed to parse saved squares for mode', e);
+      }
     }
     return 'setup';
   });
@@ -519,7 +527,9 @@ export default function App() {
                     setHasWon(false);
                     setShowWinNotification(false);
                     setWonAt(null);
-                    window.history.replaceState({}, '', window.location.pathname);
+                    try {
+                      window.history.replaceState({}, '', window.location.pathname);
+                    } catch (e) {}
                   }
                 }}
                 className="w-full py-3 px-4 bg-[var(--surface-alt)] hover:bg-[var(--border-dim)] text-red-500 rounded-xl text-[10px] font-[800] uppercase tracking-widest transition-all"
