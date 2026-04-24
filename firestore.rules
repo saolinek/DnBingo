@@ -18,7 +18,8 @@ service cloud.firestore {
 
     function isValidPlayer(data) {
       return data.keys().hasAll(['name', 'checkedCount', 'hasWon', 'updatedAt']) 
-        && data.keys().size() == 4
+        && data.keys().size() >= 4 && data.keys().size() <= 5
+        && (!data.keys().hasAny(['wonAt']) || data.wonAt is int)
         && data.name is string && data.name.size() > 0 && data.name.size() <= 64
         && data.checkedCount is int && data.checkedCount >= 0 && data.checkedCount <= 9
         && data.hasWon is bool
@@ -39,7 +40,7 @@ service cloud.firestore {
         allow update: if isVerified() && isValidId(roomId) && isValidId(playerId)
           && request.auth.uid == playerId
           && isValidPlayer(incoming())
-          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'checkedCount', 'hasWon', 'updatedAt']);
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'checkedCount', 'hasWon', 'wonAt', 'updatedAt']);
           
         allow delete: if isVerified() && isValidId(roomId) && isValidId(playerId) && request.auth.uid == playerId;
       }

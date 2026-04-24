@@ -26,6 +26,10 @@
         "hasWon": {
           "type": "boolean"
         },
+        "wonAt": {
+          "type": "integer",
+          "description": "Timestamp in ms of when player won (optional)"
+        },
         "updatedAt": {
           "type": "timestamp"
         }

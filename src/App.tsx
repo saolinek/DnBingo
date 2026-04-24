@@ -139,7 +139,7 @@ export default function App() {
         if (a.hasWon && b.hasWon) {
            return (a.wonAt || 0) - (b.wonAt || 0);
         }
-        return 0;
+        return (b.checkedCount || 0) - (a.checkedCount || 0);
       });
       setPlayers(p);
     });
@@ -150,13 +150,20 @@ export default function App() {
   useEffect(() => {
     if (!user || !sessionId) return;
     const playerRef = doc(db, `rooms/${sessionId}/players`, user.uid);
-    setDoc(playerRef, {
+    const checkedCount = squares.filter(s => s.checked).length;
+    
+    const dataToSave: any = {
       name: user.displayName || 'Hráč',
+      checkedCount,
       hasWon,
-      wonAt: wonAt || null,
       updatedAt: serverTimestamp()
-    }, { merge: true }).catch(console.error);
-  }, [hasWon, wonAt, sessionId, user]);
+    };
+    if (wonAt) {
+      dataToSave.wonAt = wonAt;
+    }
+    
+    setDoc(playerRef, dataToSave, { merge: true }).catch(console.error);
+  }, [hasWon, wonAt, sessionId, user, squares]);
 
   // Sync theme
   useEffect(() => {
@@ -498,8 +505,15 @@ export default function App() {
                         <span className={`w-8 h-8 rounded-lg ${isWinner ? 'bg-[#ec4899] text-white shadow-[0_0_10px_#ec4899]' : p.id === user.uid ? 'bg-[var(--brand)] text-[var(--bg-app)]' : 'bg-[var(--surface-alt)] border border-[var(--border-bright)] text-[var(--text-main)]'} font-[800] flex items-center justify-center text-[10px] tracking-tighter`}>
                           {p.name.substring(0, 2).toUpperCase()}
                         </span>
-                        <span className="font-bold tracking-tight text-sm flex gap-2 items-center">
-                          {p.name} {p.id === user.uid && <span className="text-[10px] text-[var(--brand)]">(Ty)</span>}
+                        <span className="font-bold tracking-tight text-sm flex flex-col items-start gap-0.5">
+                          <span className="flex gap-2 items-center">
+                            {p.name} {p.id === user.uid && <span className="text-[10px] text-[var(--brand)]">(Ty)</span>}
+                          </span>
+                          {!isWinner && (
+                            <span className="text-[10px] text-[var(--text-muted)] font-mono">
+                              SCORE: {p.checkedCount || 0}/9
+                            </span>
+                          )}
                         </span>
                       </span>
                       {isWinner && (
