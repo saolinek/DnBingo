@@ -27,6 +27,26 @@ interface BingoSquare {
 
 const STORAGE_KEY = 'dnb-bingo-state';
 
+const safeSetStorage = (key: string, value: string) => {
+  try {
+    localStorage.setItem(key, value);
+  } catch (e) {}
+};
+
+const safeGetStorage = (key: string) => {
+  try {
+    return localStorage.getItem(key);
+  } catch (e) {
+    return null;
+  }
+};
+
+const safeRemoveStorage = (key: string) => {
+  try {
+    localStorage.removeItem(key);
+  } catch (e) {}
+};
+
 const generateSessionId = () => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
   return Array.from({length: 3}, () => chars.charAt(Math.floor(Math.random() * chars.length))).join('');
@@ -48,25 +68,25 @@ export default function App() {
     const params = new URLSearchParams(window.location.search);
     const roomParam = params.get('room');
     if (roomParam && roomParam.length === 3) {
-      localStorage.setItem('dnb-session', roomParam);
+      safeSetStorage('dnb-session', roomParam);
       // Clean up URL without reloading
       try {
         window.history.replaceState({}, '', window.location.pathname);
       } catch (e) {}
       return roomParam;
     }
-    return localStorage.getItem('dnb-session') || '';
+    return safeGetStorage('dnb-session') || '';
   });
   const [isJoining, setIsJoining] = useState(false);
   const [joinCode, setJoinCode] = useState('');
   
   const [isDarkMode, setIsDarkMode] = useState(() => {
-    const saved = localStorage.getItem('dnb-theme');
+    const saved = safeGetStorage('dnb-theme');
     return saved === 'dark'; 
   });
 
   const [squares, setSquares] = useState<BingoSquare[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = safeGetStorage(STORAGE_KEY);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -97,7 +117,7 @@ export default function App() {
   };
 
   const [mode, setMode] = useState<'setup' | 'play'>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = safeGetStorage(STORAGE_KEY);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -172,16 +192,16 @@ export default function App() {
   // Sync theme
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDarkMode);
-    localStorage.setItem('dnb-theme', isDarkMode ? 'dark' : 'light');
+    safeSetStorage('dnb-theme', isDarkMode ? 'dark' : 'light');
   }, [isDarkMode]);
 
   // Auto-save to localStorage
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(squares));
+    safeSetStorage(STORAGE_KEY, JSON.stringify(squares));
   }, [squares]);
 
   useEffect(() => {
-    localStorage.setItem('dnb-session', sessionId);
+    safeSetStorage('dnb-session', sessionId);
   }, [sessionId]);
 
   useEffect(() => {
@@ -296,7 +316,7 @@ export default function App() {
             
             <div className="flex flex-col gap-2 relative z-10">
               <span className="text-[10px] uppercase tracking-[0.4em] text-[var(--brand)] font-bold mb-2">Live Arena</span>
-              <h1 className="text-5xl md:text-6xl font-[800] tracking-tighter uppercase italic text-[var(--text-main)] drop-shadow-sm">
+              <h1 className="text-5xl md:text-6xl font-[800] tracking-tighter uppercase italic text-black drop-shadow-sm">
                 DNB<span className="text-[var(--brand)]">INGO</span>
               </h1>
             </div>
@@ -335,7 +355,7 @@ export default function App() {
           <header className="w-full max-w-6xl flex flex-col md:flex-row justify-between items-center md:items-end mb-12 border-b border-[var(--border-dim)] pb-8 gap-6 md:gap-0">
         <div className="flex flex-col items-center md:items-start group cursor-pointer" onClick={() => window.location.reload()}>
           <span className="text-[10px] uppercase tracking-[0.3em] text-[var(--brand)] font-semibold mb-1">Live Arena</span>
-          <h1 className="text-5xl font-[800] tracking-tighter text-[var(--text-main)] uppercase italic group-hover:scale-105 transition-transform duration-300">
+          <h1 className="text-5xl font-[800] tracking-tighter text-black uppercase italic group-hover:scale-105 transition-transform duration-300">
             DNB<span className="text-[var(--brand)]">INGO</span>
           </h1>
         </div>
@@ -557,7 +577,7 @@ export default function App() {
               <button 
                 onClick={() => {
                   if (confirm('Opravdu chcete opustit hru a vrátit se na domovskou obrazovku?')) {
-                    localStorage.removeItem('dnb-session');
+                    safeRemoveStorage('dnb-session');
                     setSessionId('');
                     setMode('setup');
                     setSquares(Array.from({ length: 9 }, (_, i) => ({ id: i, title: '', checked: false })));
