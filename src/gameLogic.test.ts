@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hasBingo, shouldClaimWin, sortPlayers, type BingoSquare, type PlayerRecord } from './gameLogic';
+import { getCheckedCount, hasBingo, shouldClaimWin, sortPlayers, type BingoSquare, type PlayerRecord } from './gameLogic';
 
 const createBoard = (checkedIndexes: number[]): BingoSquare[] =>
   Array.from({ length: 9 }, (_, id) => ({
@@ -8,6 +8,19 @@ const createBoard = (checkedIndexes: number[]): BingoSquare[] =>
     title: `Track ${id + 1}`,
     checked: checkedIndexes.includes(id),
   }));
+
+test('getCheckedCount returns the correct number of checked squares', () => {
+  assert.equal(getCheckedCount([]), 0);
+
+  const boardWithNone = createBoard([]);
+  assert.equal(getCheckedCount(boardWithNone), 0);
+
+  const boardWithSome = createBoard([0, 3, 8]);
+  assert.equal(getCheckedCount(boardWithSome), 3);
+
+  const boardWithAll = createBoard([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.equal(getCheckedCount(boardWithAll), 9);
+});
 
 test('hasBingo detects complete winning row only when titles are filled', () => {
   const board = createBoard([0, 1, 2]);
