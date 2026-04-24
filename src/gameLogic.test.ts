@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hasBingo, shouldClaimWin, sortPlayers, type BingoSquare, type PlayerRecord } from './gameLogic';
+import { compareWinners, hasBingo, shouldClaimWin, sortPlayers, type BingoSquare, type PlayerRecord } from './gameLogic';
 
 const createBoard = (checkedIndexes: number[]): BingoSquare[] =>
   Array.from({ length: 9 }, (_, id) => ({
@@ -8,6 +8,50 @@ const createBoard = (checkedIndexes: number[]): BingoSquare[] =>
     title: `Track ${id + 1}`,
     checked: checkedIndexes.includes(id),
   }));
+
+test('compareWinners uses wonAt as primary sort key', () => {
+  const playerA: PlayerRecord = { id: 'a', wonAt: 1000 };
+  const playerB: PlayerRecord = { id: 'b', wonAt: 2000 };
+
+  assert.ok(compareWinners(playerA, playerB) < 0, 'Player A won earlier, should be sorted first');
+  assert.ok(compareWinners(playerB, playerA) > 0, 'Player B won later, should be sorted second');
+
+  // Verify it handles undefined correctly (Number.MAX_SAFE_INTEGER fallback)
+  const playerC: PlayerRecord = { id: 'c' }; // wonAt undefined
+  assert.ok(compareWinners(playerA, playerC) < 0, 'Player A won, Player C undefined, A first');
+});
+
+test('compareWinners uses winOrder as secondary sort key', () => {
+  const playerA: PlayerRecord = { id: 'a', wonAt: 1000, winOrder: 1 };
+  const playerB: PlayerRecord = { id: 'b', wonAt: 1000, winOrder: 2 };
+
+  assert.ok(compareWinners(playerA, playerB) < 0, 'Same wonAt, Player A has lower winOrder, should be sorted first');
+  assert.ok(compareWinners(playerB, playerA) > 0, 'Same wonAt, Player B has higher winOrder, should be sorted second');
+
+  // Verify it handles undefined correctly
+  const playerC: PlayerRecord = { id: 'c', wonAt: 1000 }; // winOrder undefined
+  assert.ok(compareWinners(playerA, playerC) < 0, 'Player A has winOrder, Player C undefined, A first');
+});
+
+test('compareWinners uses updatedAt as tertiary sort key', () => {
+  const playerA: PlayerRecord = { id: 'a', wonAt: 1000, winOrder: 1, updatedAt: { toMillis: () => 100 } };
+  const playerB: PlayerRecord = { id: 'b', wonAt: 1000, winOrder: 1, updatedAt: { toMillis: () => 200 } };
+
+  assert.ok(compareWinners(playerA, playerB) < 0, 'Same wonAt and winOrder, Player A updated earlier, should be sorted first');
+  assert.ok(compareWinners(playerB, playerA) > 0, 'Same wonAt and winOrder, Player B updated later, should be sorted second');
+
+  // Verify it handles undefined correctly
+  const playerC: PlayerRecord = { id: 'c', wonAt: 1000, winOrder: 1 }; // updatedAt undefined
+  assert.ok(compareWinners(playerA, playerC) < 0, 'Player A has updatedAt, Player C undefined, A first');
+});
+
+test('compareWinners uses id as fallback sort key', () => {
+  const playerA: PlayerRecord = { id: 'a', wonAt: 1000, winOrder: 1, updatedAt: { toMillis: () => 100 } };
+  const playerB: PlayerRecord = { id: 'b', wonAt: 1000, winOrder: 1, updatedAt: { toMillis: () => 100 } };
+
+  assert.ok(compareWinners(playerA, playerB) < 0, 'Same wonAt, winOrder, updatedAt, Player A id sorts first');
+  assert.ok(compareWinners(playerB, playerA) > 0, 'Same wonAt, winOrder, updatedAt, Player B id sorts second');
+});
 
 test('hasBingo detects complete winning row only when titles are filled', () => {
   const board = createBoard([0, 1, 2]);
