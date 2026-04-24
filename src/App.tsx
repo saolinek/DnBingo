@@ -297,7 +297,7 @@ export default function App() {
             <div className="flex flex-col gap-2 relative z-10">
               <span className="text-[10px] uppercase tracking-[0.4em] text-[var(--brand)] font-bold mb-2">Live Arena</span>
               <h1 className="text-5xl md:text-6xl font-[800] tracking-tighter uppercase italic text-[var(--text-main)] drop-shadow-sm">
-                DN<span className="text-[var(--brand)]">BINGO</span>
+                DNB<span className="text-[var(--brand)]">INGO</span>
               </h1>
             </div>
 
@@ -336,7 +336,7 @@ export default function App() {
         <div className="flex flex-col items-center md:items-start group cursor-pointer" onClick={() => window.location.reload()}>
           <span className="text-[10px] uppercase tracking-[0.3em] text-[var(--brand)] font-semibold mb-1">Live Arena</span>
           <h1 className="text-5xl font-[800] tracking-tighter text-[var(--text-main)] uppercase italic group-hover:scale-105 transition-transform duration-300">
-            DN<span className="text-[var(--brand)]">BINGO</span>
+            DNB<span className="text-[var(--brand)]">INGO</span>
           </h1>
         </div>
 
