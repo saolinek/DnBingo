@@ -82,7 +82,17 @@ const scoreSuggestion = (track: TrackSuggestion, query: string) => {
   if (normalizedTitle.includes(normalizedQuery)) return 60;
   if (normalizedArtist.includes(normalizedQuery)) return 50;
   if (normalizedLabel.includes(normalizedQuery)) return 40;
-  return 0;
+
+  const queryWords = normalizedQuery.split(/\s+/).filter(w => w.length > 0);
+  const allWordsMatch = queryWords.length > 0 && queryWords.every(word =>
+    normalizedLabel.includes(word)
+  );
+
+  if (allWordsMatch) return 30;
+
+  // Since Apple Music API already does relevance matching, we don't want to discard
+  // valid results just because they don't contain all words exactly.
+  return 10;
 };
 
 export default function App() {
@@ -173,7 +183,6 @@ export default function App() {
   const [isSearching, setIsSearching] = useState(false);
   const [activeSearchIndex, setActiveSearchIndex] = useState<number | null>(null);
   const searchRequestIdRef = useRef(0);
-  const windowWithCallbacks = window as typeof window & Record<string, unknown>;
 
   useEffect(() => {
     if (!user || !sessionId || !db) return;
@@ -374,7 +383,6 @@ export default function App() {
 
     const requestId = searchRequestIdRef.current + 1;
     searchRequestIdRef.current = requestId;
-    const callbackName = `__dnbingoTrackSearch_${requestId}`;
 
     try {
       const params = new URLSearchParams({
@@ -382,10 +390,21 @@ export default function App() {
         entity: 'song',
         media: 'music',
         limit: '20',
-        callback: callbackName,
       });
 
-      const data = await new Promise<{
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+
+      const response = await fetch(`https://itunes.apple.com/search?${params.toString()}`, {
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        throw new Error(`Track search failed with status: ${response.status}`);
+      }
+
+      const data = await response.json() as {
         results?: Array<{
           trackId?: number;
           artistName?: string;
@@ -394,41 +413,8 @@ export default function App() {
           trackViewUrl?: string;
           artworkUrl100?: string;
         }>;
-      }>((resolve, reject) => {
-        const script = document.createElement('script');
-        const timeout = window.setTimeout(() => {
-          cleanup();
-          reject(new Error('Track search timed out'));
-        }, 8000);
+      };
 
-        const cleanup = () => {
-          window.clearTimeout(timeout);
-          script.remove();
-          delete windowWithCallbacks[callbackName];
-        };
-
-        windowWithCallbacks[callbackName] = (response: unknown) => {
-          cleanup();
-          resolve(response as {
-            results?: Array<{
-              trackId?: number;
-              artistName?: string;
-              trackName?: string;
-              collectionName?: string;
-              trackViewUrl?: string;
-              artworkUrl100?: string;
-            }>;
-          });
-        };
-
-        script.onerror = () => {
-          cleanup();
-          reject(new Error('Track search script failed to load'));
-        };
-
-        script.src = `https://itunes.apple.com/search?${params.toString()}`;
-        document.body.appendChild(script);
-      });
       if (requestId !== searchRequestIdRef.current) {
         return;
       }
